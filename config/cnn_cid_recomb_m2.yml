@@ -1,0 +1,34 @@
+account_name: "adamoyoung"
+project_name: "massformer"
+run_name:
+data:
+  primary_dset: ["nist"]
+  secondary_dset: ["mb_na"]
+  ce_key: "nce"
+  inst_type: ["FT"]
+  frag_mode: ["CID"]
+  fp_types: []
+  preproc_ce: "normalize"
+  spectrum_normalization: "l1"
+  num_canonicals: 5
+model:
+  embed_types: ["cnn"]
+  conv_kernel_size: 7
+  conv_num_kernels: 64
+  conv_num_layers: 2
+  conv_pool_size: 8
+  conv_pool_type: "avg"
+  ff_layer_type: "neims"
+  ff_h_dim: 1000
+  ff_num_layers: 5
+  ff_skip: False
+  dropout: 0.1
+  output_normalization: "l1"
+run:
+  do_test: True
+  do_matching_2: True
+  lr: 0.01
+  batch_size: 256
+  weight_decay: 0.001
+  cuda_deterministic: False
+  train_seed: 5585

@@ -1,0 +1,93 @@
+account_name: "adamoyoung" # W&B account
+project_name: "massformer"
+run_name: "template"
+# spec stuff
+data:
+  proc_dp: "data/proc"
+  primary_dset: ["nist"]
+  secondary_dset: []
+  inst_type: ["FT"]
+  frag_mode: ["HCD"]
+  ion_mode: "P"
+  pos_prec_type: ['[M+H]+', '[M+H-H2O]+', '[M+H-2H2O]+', '[M+2H]2+', '[M+H-NH3]+']
+  neg_prec_type: ['[M-H]-', '[M-H-H2O]-']
+  res: [1,2,3,4,5,6,7]
+  mz_bin_res: 1.
+  mz_max: 1000.
+  transform: "log10over3"
+  atom_feature_mode: "medium"
+  bond_feature_mode: "full"
+  spec_meta_node: True
+  spec_meta_global: True
+  self_loop: True
+  preproc_ce: "normalize"
+  subsample_size: 0
+  ints_thresh: 0.
+  subsample_seed: 42069
+  spectrum_normalization: "l1"
+  num_entries: -1
+  selfies_encoding: True
+  max_seq_len: 500
+  num_canonicals: 1
+  subsample_long_seq: True
+  ce_key: "nce"
+  fp_types: ["morgan","maccs","rdkit"]
+  max_node: 128
+  multi_hop_max_dist: 20
+  spatial_pos_max: 1024
+# model stuff
+model:
+  embed_types: ["fp"]
+  gnn_num_layers: 3
+  gnn_h_dim: 196
+  gnn_pool_type: "max"
+  ff_layer_type: "neims"
+  ff_skip: False
+  ff_num_layers: 3
+  ff_h_dim: 1000
+  gate_prediction: True
+  dropout: 0.15
+  output_normalization: "l1"
+  model_seed: 6666
+  conv_num_layers: 3
+  conv_kernel_size: 5
+  conv_num_kernels: 32
+  conv_stride: 1
+  conv_pool_type: "max"
+  conv_pool_size: 4
+# running stuff
+run:
+  learning_rate: 0.001
+  num_epochs: 500
+  val_frac: 0.10
+  test_frac: 0.20
+  optimizer: "adamw"
+  batch_size: 32
+  batch_loss_agg: "mean"
+  split_key: "scaffold"
+  split_seed: 420
+  loss: "cos"
+  sim: "cos"
+  weight_decay: 0.001
+  early_stop_thresh: 10
+  scheduler: "plateau"
+  scheduler_period: 5
+  scheduler_ratio: 0.1
+  train_seed: 112233
+  device: "cuda:0"
+  non_blocking: False
+  log_interval: 10
+  do_test: True
+  num_workers: 6
+  num_track: 5
+  pred_viz: True
+  track_plot_title: True
+  do_matching_2: True
+  pin_memory: True
+  stop_key: "mol"
+  cuda_deterministic: False
+  parallel_strategy: "fd"
+  save_state: True
+  save_media: True
+  amp: False
+  load_id:
