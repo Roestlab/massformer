@@ -271,7 +271,7 @@ def parse_ace_str(ce_str):
 		r"^[\d]+[.]?[\d]*HCD$": lambda x: float(x.rstrip("HCD")),
 		r"^CE [\d]+[.]?[\d]*$": lambda x: float(x.lstrip("CE ")),
 	}
-	for k,v in matches.datas():
+	for k,v in matches.items():
 		# try:
 		if re.match(k,ce_str):
 			return v(ce_str)
@@ -296,7 +296,7 @@ def parse_nce_str(ce_str):
 		r"^[\d]+[.]?[\d]*[ ]?%$": lambda x: float(x.rstrip(" %")),
 		r"^HCD \(NCE [\d]+[.]?[\d]*%\)$": lambda x: float(x.lstrip("HCD (NCE").rstrip("%)")),
 	}
-	for k,v in matches.datas():
+	for k,v in matches.items():
 		if re.match(k,ce_str):
 			return v(ce_str)
 	return np.nan
@@ -494,11 +494,11 @@ def analyze_mol(mol):
 			bond_counts["aromatic"] += 1
 	mol_dict["other_atoms"] = ",".join(sorted(list(other_atoms)))
 	mol_dict["H_counts"] = h_counts
-	for k,v in cnops_counts.datas():
+	for k,v in cnops_counts.items():
 		mol_dict[f"{k}_counts"] = v
-	for k,v in bond_counts.datas():
+	for k,v in bond_counts.items():
 		mol_dict[f"{k}_counts"] = v
-	for k,v in cnops_bond_counts.datas():
+	for k,v in cnops_bond_counts.items():
 		mol_dict[f"{k}_max_bond_counts"] = max(v)
 	return mol_dict
 

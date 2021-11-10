@@ -1,11 +1,11 @@
 # MassFormer
 
-This is original implementation of MassFormer, a graph transformer for small molecule tandem MS/MS prediction.
+This is the original implementation of MassFormer, a graph transformer for small molecule MS/MS prediction. Check out the preprint on [arxiv](https://arxiv.org/abs/2111.04824).
 
 
 ## Setting Up Environment
 
-We recommend using [conda](https://docs.conda.io/en/latest/miniconda.html). Three conda yml files are provided (`cpu.yml`, `cu101.yml`, `cu102.yml`), providing different pytorch installation options (CPU-only, CUDA 10.1, CUDA 10.2). They can be trivially modified to support other versions of CUDA.
+We recommend using [conda](https://docs.conda.io/en/latest/miniconda.html). Three conda yml files are provided in the `env/` directory (`cpu.yml`, `cu101.yml`, `cu102.yml`), providing different pytorch installation options (CPU-only, CUDA 10.1, CUDA 10.2). They can be trivially modified to support other versions of CUDA.
 
 To set up an environment, run the command `conda env create -f ${CONDA_YAML}`, where `${CONDA_YAML}` is the path to the desired yaml file.
 
