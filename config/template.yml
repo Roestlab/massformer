@@ -1,9 +1,11 @@
-account_name: "adamoyoung" # W&B account
+entity_name: "adamoyoung"
 project_name: "massformer"
 run_name: "template"
-# spec stuff
+
 data:
   proc_dp: "data/proc"
+  cfm_dp: "data/cfm"
+  checkpoint_dp: "checkpoints"
   primary_dset: ["nist"]
   secondary_dset: []
   inst_type: ["FT"]
@@ -31,11 +33,18 @@ data:
   num_canonicals: 1
   subsample_long_seq: True
   ce_key: "nce"
-  fp_types: ["morgan","maccs","rdkit"]
+  fp_types: ["morgan"]
   max_node: 128
   multi_hop_max_dist: 20
   spatial_pos_max: 1024
-# model stuff
+  casmi_num_entries: -1
+  pcasmi_num_entries: -1
+  casmi_nces: [20,35,50]
+  convert_ce: False
+  casmi_dp: "casmi"
+  pcasmi_dp: "pcasmi"
+  gf_algos_v: "algos2"
+
 model:
   embed_types: ["fp"]
   gnn_num_layers: 3
@@ -46,7 +55,13 @@ model:
   ff_num_layers: 3
   ff_h_dim: 1000
   gate_prediction: True
+  gt_gate_prediction: False
+  gt_gate_val: 0.8
+  bidirectional_prediction: False
+  mass_tau: 1 
+  gat_num_heads: 4
   dropout: 0.15
+  output_activation: "relu"
   output_normalization: "l1"
   model_seed: 6666
   conv_num_layers: 3
@@ -55,12 +70,31 @@ model:
   conv_stride: 1
   conv_pool_type: "max"
   conv_pool_size: 4
-# running stuff
+  fix_num_pt_layers: 0
+  reinit_num_pt_layers: 0
+  cfm_postprocessing: False
+  tf_h_dim: 256
+  tf_num_layers: 4
+  tf_num_heads: 6
+  spectrum_attention: False
+  gf_model_name: "graphormer_base"
+  gf_pretrain_name: "pcqm4mv2_graphormer_base"
+  reinit_layernorm: False
+  cfm_model: False
+  cfm_rb: True
+  prec_mass_offset: 0
+  embed_dim: -1
+  embed_agg: "concat"
+  embed_linear: False
+  checkpoint_name:
+
 run:
   learning_rate: 0.001
   num_epochs: 500
+  num_decay_epochs: -1
   val_frac: 0.10
   test_frac: 0.20
+  sec_frac: 1.00
   optimizer: "adamw"
   batch_size: 32
   batch_loss_agg: "mean"
@@ -69,10 +103,14 @@ run:
   loss: "cos"
   sim: "cos"
   weight_decay: 0.001
+  pt_weight_decay: -1.
+  clip_grad_norm: 1000000.0
   early_stop_thresh: 10
   scheduler: "plateau"
   scheduler_period: 5
   scheduler_ratio: 0.1
+  scheduler_peak_lr: 0.0002
+  match_seed: 69
   train_seed: 112233
   device: "cuda:0"
   non_blocking: False
@@ -82,12 +120,42 @@ run:
   num_track: 5
   pred_viz: True
   track_plot_title: True
-  do_matching_2: True
+  do_matching: False
+  do_matching_2: False
+  do_casmi: False
+  do_pcasmi: False
+  casmi_batch_size: -1
+  casmi_num_workers: -1
+  casmi_pred_all: True
+  pcasmi_pred_all: False
+  log_pcasmi_um: False
+  match_num_cands: 50
+  match_num_reps: 1
+  match_exact: True
+  match_max_num_cands: 1000
+  match_batch_size: 50
+  match_num_workers: 6
   pin_memory: True
-  stop_key: "mol"
+  match_remove_mol_dups: False
+  match_type: "formula"
+  stop_key: "mol_loss_obj_mean"
   cuda_deterministic: False
   parallel_strategy: "fd"
   save_state: True
   save_media: True
+  save_split: True
+  casmi_save_sim: False
   amp: False
-  load_id:
+  dp: False
+  dp_num_gpus: 2
+  flag: False
+  flag_m: 3
+  flag_step_size: 0.001
+  flag_mag: 0.001
+  filter_spec: False
+  log_auxiliary: False
+  log_tqdm: True
+  use_val_info: True
+  grad_acc_interval: 1
+  test_sets: ["test"]
+  save_test_sims: False
