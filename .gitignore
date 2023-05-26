@@ -1,0 +1,11 @@
+config/**
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info
+build/
+build/**
+data/**
+checkpoints/**
+*.c

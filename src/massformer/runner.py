@@ -1304,8 +1304,8 @@ if __name__ == "__main__":
     if use_wandb:
 
         if flags.num_seeds > 0:
-            assert flags.job_id is not None
             assert flags.num_seeds > 1, flags.num_seeds
+            assert flags.seed_idx >= 0, flags.seed_idx
             # get the seeds
             if run_d["train_seed"] is None:
                 meta_seed = 420420420
@@ -1330,65 +1330,25 @@ if __name__ == "__main__":
                 print("> train seeds:", train_seeds)
                 print("> split seeds:", split_seeds)
             group_name = f"{run_name}_rand"
-            if flags.seed_idx >= 0:
-                # only run the one with index seed_idx
-                # WARNING: does not check if another with the same group_idx is
-                # being run
-                assert flags.seed_idx <= flags.num_seeds
-                i = flags.seed_idx
-                model_d["model_seed"] = model_seeds[i]
-                run_d["train_seed"] = train_seeds[i]
-                run_d["split_seed"] = split_seeds[i]
-                run_d["cuda_deterministic"] = False
-                job_id = f"{flags.job_id}"  # does not need to add the _i
-                run_name = f"{run_name}_{i}"
-                init_wandb_run(
-                    entity_name=entity_name,
-                    project_name=project_name,
-                    run_name=run_name,
-                    data_d=data_d,
-                    model_d=model_d,
-                    run_d=run_d,
-                    wandb_meta_dp=flags.wandb_meta_dp,
-                    group_name=group_name,
-                    wandb_mode=flags.wandb_mode
-                )
-            else:
-                # run all
-                # first, check how many have been completed
-                job_id_fp = os.path.join(
-                    flags.job_id_dp, f"{flags.job_id}.yml")
-                if os.path.isfile(job_id_fp):
-                    with open(job_id_fp, "r") as file:
-                        num_complete = yaml.safe_load(file)["num_complete"]
-                else:
-                    num_complete = 0
-                    with open(job_id_fp, "w") as file:
-                        yaml.dump(dict(num_complete=num_complete), file)
-                # then, run any that haven't completed yet
-                for i in range(num_complete, flags.num_seeds):
-                    model_d["model_seed"] = model_seeds[i]
-                    run_d["train_seed"] = train_seeds[i]
-                    run_d["split_seed"] = split_seeds[i]
-                    run_d["cuda_deterministic"] = False
-                    job_id_i = f"{flags.job_id}_{i}"
-                    run_name_i = f"{run_name}_{i}"
-                    init_wandb_run(
-                        entity_name=entity_name,
-                        project_name=project_name,
-                        run_name=run_name_i,
-                        data_d=data_d,
-                        model_d=model_d,
-                        run_d=run_d,
-                        wandb_meta_dp=flags.wandb_meta_dp,
-                        group_name=group_name,
-                        wandb_mode=flags.wandb_mode
-                    )
-                    num_complete += 1
-                    with open(job_id_fp, "w") as file:
-                        yaml.dump(dict(num_complete=num_complete), file)
-                # cleanup
-                os.remove(job_id_fp)
+            # only run the one with index seed_idx
+            assert flags.seed_idx <= flags.num_seeds
+            i = flags.seed_idx
+            model_d["model_seed"] = model_seeds[i]
+            run_d["train_seed"] = train_seeds[i]
+            run_d["split_seed"] = split_seeds[i]
+            run_d["cuda_deterministic"] = False
+            run_name = f"{run_name}_{i}"
+            init_wandb_run(
+                entity_name=entity_name,
+                project_name=project_name,
+                run_name=run_name,
+                data_d=data_d,
+                model_d=model_d,
+                run_d=run_d,
+                wandb_meta_dp=flags.wandb_meta_dp,
+                group_name=group_name,
+                wandb_mode=flags.wandb_mode
+            )
         else:
             # just run one
             init_wandb_run(
