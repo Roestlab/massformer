@@ -425,7 +425,7 @@ def run_track(
     return step, epoch, {}
 
 
-def compute_cross_sims(data_d, dl_d, use_wandb):
+def compute_cross_sims(data_d, run_d, dl_d, use_wandb):
 
     if not run_d["do_test"] or not use_wandb:
         return None
@@ -1119,7 +1119,7 @@ def train_and_eval(data_d, model_d, run_d, use_wandb):
                 wandb.save("chkpt.pkl")
 
     # test
-    compute_cross_sims(data_d, dl_d, use_wandb)
+    compute_cross_sims(data_d, run_d, dl_d, use_wandb)
     model.load_state_dict(best_state_dict)
     step, epoch, test_d = run_test(step, epoch, model, dl_d, data_d,
                                    model_d, run_d, use_wandb, run_dir, test_sets=run_d["test_sets"])
