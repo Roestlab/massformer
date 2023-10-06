@@ -568,21 +568,53 @@ def plot_cand_sim_std_hist(query_sim_stds):
     return data
 
 
-def plot_sim_hist(sim_type, sims):
+def plot_sim_hist(sims, sim_type=None, weights=None, title=None, fp=None, figsize=(9,4), legend=False, size=20, color="blue"):
 
-    fig, ax = plt.subplots(1, 1)
+    big_font_size = int(size)
+    small_font_size = int(0.8*size)
+    tick_size = int(0.7*size)
+    x_pad = y_pad = int(0.6*size)
+    fig, ax = plt.subplots(figsize=figsize,dpi=200)
     bins = np.linspace(0., 1., 101)
-    ax.hist(sims, bins=bins)
-    ax.axvline(x=np.mean(sims), color="black", linestyle="dashed", linewidth=1)
+    if weights is None:
+        sims_mean = np.mean(sims)
+        weights = np.ones_like(sims,dtype=np.float32) / sims.shape[0]
+    else:
+        sims_mean = np.average(sims, weights=weights)
+    ax.hist(sims, bins=bins, weights=weights, color=color)
     ax.axvline(
-        x=np.median(sims),
+        x=sims_mean,
         color="black",
-        linestyle="solid",
-        linewidth=1)
-    ax.set_xlabel(f"{sim_type} similarity")
-    # fig.suptitle(f"{split} split: {sim_type} similarity")
+        linestyle="dashed",
+        linewidth=2,
+        label=f"Mean={sims_mean:.2f}")
+    if sim_type is not None:
+        xlabel = f"{sim_type.capitalize()} Similarity"
+    else:
+        xlabel = "Similarity"
+    ax.set_xlabel(
+        xlabel,
+        fontsize=small_font_size,
+        labelpad=x_pad)
+    ax.set_ylabel(
+        "Fraction",
+        fontsize=small_font_size,
+        labelpad=y_pad)
+    ax.tick_params(axis="x", which="both", labelsize=tick_size)
+    ax.tick_params(axis="y", which="both", labelsize=tick_size)
+    if title is not None:
+        fig.suptitle(title,fontsize=big_font_size)
+    if legend:
+        ax.legend(
+            # handles=handles,
+            loc="upper right",
+            ncol=1,
+            framealpha=1.0,
+            fontsize=small_font_size)
+    fig.tight_layout()
     data = fig_to_data(fig, bbox_inches="tight")
-    # plt.savefig("hist.png")
+    if fp is not None:
+        plt.savefig(fp)
     plt.close("all")
     return data
 
@@ -772,3 +804,66 @@ def fig_to_data(fig, **kwargs):
     buf.seek(0)
     image = Image.open(buf)
     return image
+
+
+def test_plot_spectra():
+
+    mz_max = 300. #1000.
+    mz_res = 0.1
+    smiles = "CC(O)C" # isopropanol
+    loss = 1.
+    sim = 0.
+    loss_type = "cos"
+    sim_type = "cos"
+    height_ratios = [1,1,1]
+    size = 40
+    figsize = (20,20)
+
+    bins = np.arange(0,mz_max+mz_res,step=mz_res)
+
+    # generate random spectrum
+    pred_bin_idx = np.random.choice(np.arange(bins.shape[0]),replace=False,size=(10,))
+    pred_ints = np.random.rand(10,)
+    pred_ints = pred_ints / np.sum(pred_ints)
+    pred_spec = np.zeros_like(bins,dtype=np.float32)
+    pred_spec[pred_bin_idx] = pred_ints
+
+    # manually define true spectrum
+    true_mzs = [
+        55.4,
+        55.9,
+        102.3,
+        210.455,
+        233.33,
+        233.34,
+        233.43,
+    ]
+    true_mzs = np.array(true_mzs)
+    true_ints = np.random.rand(*true_mzs.shape)
+    true_bin_idx = np.searchsorted(bins,true_mzs,side="right")
+    true_spec = np.zeros_like(bins,dtype=np.float32)
+    for i in range(len(true_mzs)):
+        if true_bin_idx[i] < len(bins):
+            true_spec[true_bin_idx[i]] = max(true_spec[true_bin_idx[i]],true_ints[i])
+
+    data1 = plot_spec(
+        true_spec,
+        pred_spec,
+        mz_max,
+        mz_res,
+        loss=loss,
+        sim=sim,
+        loss_type=loss_type,
+        sim_type=sim_type,
+        height_ratios=[1,1,1],
+        size=size,
+        smiles=smiles
+    )
+
+    data1.save("figs/test_spec_1.png")
+
+
+if __name__ == "__main__":
+
+    np.random.seed(420)
+    test_plot_spectra()

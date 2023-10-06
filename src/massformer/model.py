@@ -15,7 +15,7 @@ from massformer.misc_utils import DummyContext, th_temp_seed
 from massformer.gf_model import GFv2Embedder
 
 
-def mask_prediction_by_mass(raw_prediction, prec_mass_idx, prec_mass_offset):
+def mask_prediction_by_mass(raw_prediction, prec_mass_idx, prec_mass_offset, mask_value=0.):
     # adapted from NEIMS
     # raw_prediction is [B,D], prec_mass_idx is [B]
 
@@ -26,7 +26,7 @@ def mask_prediction_by_mass(raw_prediction, prec_mass_idx, prec_mass_offset):
         idx.unsqueeze(0) <= (
             prec_mass_idx.unsqueeze(1) +
             prec_mass_offset)).float()
-    return mask * raw_prediction
+    return mask * raw_prediction + (1. - mask) * mask_value
 
 
 def reverse_prediction(raw_prediction, prec_mass_idx, prec_mass_offset):
@@ -453,7 +453,7 @@ class Predictor(nn.Module):
             self.spectrum_attender = SpectrumAttention(self.o_dim, 100, 10)
             self.out_modules.extend(["spectrum_attender"])
 
-    def forward(self, data, perturb=None, amp=False, return_input_feats=""):
+    def forward(self, data, perturb=None, amp=False, return_input_feats="", return_lda_pred=False):
 
         if amp:
             amp_context = th.cuda.amp.autocast()
@@ -557,10 +557,10 @@ class Predictor(nn.Module):
             else:
                 raise ValueError(
                     f"invalid output_normalization: {self.output_normalization}")
+            output_d = {"pred":fo}
             if return_input_feats:
-                return fo, input_feats
-            else:
-                return fo
+                output_d["input_feats"] = input_feats
+            return output_d
 
     def get_attn_mats(self, data):
 
@@ -582,6 +582,22 @@ class Predictor(nn.Module):
         for out_module in self.out_modules:
             nopt_params.extend(list(getattr(self, out_module).parameters()))
         return nopt_params, pt_params
+
+    def count_parameters(self):
+
+        # molecule embedder
+        mol_params = 0
+        for embedder in self.embedders:
+            mol_params += sum(p.numel() for p in embedder.parameters())
+        for embed_layer in self.embed_layers:
+            mol_params += sum(p.numel() for p in embed_layer.parameters())
+        # mlp
+        mlp_params = 0
+        for out_module in self.out_modules:
+            mlp_params += sum(p.numel() for p in getattr(self, out_module).parameters())
+        # total
+        total_params = sum(p.numel() for p in self.parameters())
+        return mol_params, mlp_params, total_params
 
     def set_mode(self, mode):
         pass

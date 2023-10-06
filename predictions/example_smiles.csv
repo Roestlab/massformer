@@ -1,0 +1,4 @@
+mol_id,smiles
+0,COc1c(OC2OC(CO)C(O)C(O)C2O)cc(O)c2c(=O)c(O)c(-c3ccc(O)c(O)c3)oc12
+1,invalid
+2,O=C(NCCCN1CCCCC1)c1cccc(Cl)c1

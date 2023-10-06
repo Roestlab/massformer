@@ -161,9 +161,10 @@ def get_sim_func(sim_type, mz_bin_res):
         def jacc(pred, targ):
             pred = pred > 0.
             targ = targ > 0.
-            numerator = th.matmul(
-                pred.float().unsqueeze(1),
-                targ.float().unsqueeze(2))
+            numerator = th.bmm(
+                pred.float().unsqueeze(1), 
+                targ.float().unsqueeze(2)
+            ).squeeze(-1).squeeze(-1)
             denominator = th.sum((pred | targ).float(), dim=1)
             return numerator / denominator
         sim_func = jacc

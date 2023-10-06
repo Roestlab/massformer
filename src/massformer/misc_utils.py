@@ -77,17 +77,6 @@ def list_dict_to_dict_array(list_dict):
     return dict_arr
 
 
-def df_select_with_dict(df, d):
-
-    masks = []
-    for k, v in d.items():
-        masks.append(df[k] == v)
-    all_mask = masks[0]
-    for mask in masks:
-        all_mask = all_mask & mask
-    return df[all_mask]
-
-
 def params_to_str(params):
 
     _params = {}

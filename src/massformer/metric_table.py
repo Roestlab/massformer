@@ -47,6 +47,7 @@ class MetricTable:
                 dim_size=un_mol_id.shape[0])
             return mol_val, un_mol_id
         else:
+            # averages sims by spec
             return self.val_d[key], self.mol_id
 
     def aggregate(self, key, how="mean", groupby_mol=False):
@@ -69,7 +70,8 @@ class MetricTable:
         if hist_str in self.hist_cache:
             return self.hist_cache[hist_str]
         val, mol_id = self.get_val_mol_id(key, groupby_mol=groupby_mol)
-        hist_val = wandb.Image(plot_sim_hist(hist_str, val.numpy()))
+        hist = plot_sim_hist(val.numpy(), title=hist_str)
+        hist_val = wandb.Image(hist)
         # update cache
         self.hist_cache[hist_str] = hist_val
         return hist_str, hist_val
@@ -181,7 +183,7 @@ class MetricTable:
         )
         return table
 
-    def __equals__(self, other):
+    def __eq__(self, other):
 
         if not isinstance(other, MetricTable):
             return False

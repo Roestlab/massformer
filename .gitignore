@@ -9,3 +9,9 @@ build/**
 data/**
 checkpoints/**
 *.c
+*.code-workspace
+figs/
+wandb/
+*.sif
+*.jar
+wandb_backup/

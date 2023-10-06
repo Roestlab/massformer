@@ -1,0 +1,45 @@
+run_name:
+data:
+  num_entries: -1
+  primary_dset: ["nist"]
+  secondary_dset: []
+  ce_key: "nce"
+  inst_type: ["FT"]
+  frag_mode: ["HCD"]
+  pos_prec_type: ['[M+H]+']
+  fp_types:   ["morgan","rdkit","maccs"]
+  preproc_ce: "none"
+  spectrum_normalization: "l1"
+model:
+  embed_types: ["esp"]
+  model_seed: 6666
+  esp_model: True
+  esp_new_reverse: True
+run:
+  loss: "cos"
+  sim: "cos"
+  lr: 0.01
+  batch_size: 64
+  weight_decay: 0.1
+  optimizer: "adamw"
+  scheduler: "plateau"
+  early_stop_thresh: 10
+  num_epochs: 100
+  num_workers: 8
+  cuda_deterministic: False
+  do_test: True
+  do_casmi: False
+  do_pcasmi: False
+  do_casmi22: False
+  save_state: True
+  save_media: True
+  log_auxiliary: True
+  train_seed: 5585
+  split_seed: 420
+  split_key: "inchikey_s"
+  log_tqdm: False
+  test_sets: ["train","val","test"]
+  save_test_sims: True
+  lda_topic_loss: True
+  lda_topic_loss_weight: 0.1
+  parallel_strategy: "fs"

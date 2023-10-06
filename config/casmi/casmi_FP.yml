@@ -12,38 +12,45 @@ data:
   spectrum_normalization: "l1"
   casmi_num_entries: -1
   pcasmi_num_entries: -1
+  casmi22_num_entries: -1
+  casmi_fp: True
 model:
   embed_types: ["fp"]
+  ff_layer_type: "neims"
+  ff_h_dim: 2000
+  ff_num_layers: 5
+  ff_skip: True
+  dropout: 0.1
   output_normalization: "l1"
+  bidirectional_prediction: True
   model_seed: 6666
-  cfm_model: True
-  cfm_rb: True
 run:
   loss: "cos"
   sim: "cos"
   lr: 0.01
   batch_size: 1024
   weight_decay: 0.001
-  num_epochs: 0
-  num_workers: 4
+  num_epochs: 100
+  num_workers: 8
   cuda_deterministic: False
   do_test: True
-  do_matching: False
-  do_matching_2: False
   do_casmi: True
   do_pcasmi: True
+  do_casmi22: True
   save_state: True
-  save_media: True
+  save_media: False
   casmi_save_sim: True
-  casmi_batch_size: 100
-  casmi_num_workers: 4
-  casmi_pred_all: True
+  casmi_batch_size: 512
+  casmi_num_workers: 8
+  casmi_pred_all: False
   pcasmi_pred_all: False
+  casmi22_pred_all: False
   log_pcasmi_um: True
   log_auxiliary: True
   train_seed: 5585
   split_seed: 420
   split_key: "inchikey_s"
   log_tqdm: False
-  test_sets: ["train","val","test"]
+  test_sets: ["train","val"]
   save_test_sims: True
+  test_frac: 0.

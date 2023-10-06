@@ -10,8 +10,6 @@ data:
   fp_types:   ["morgan","rdkit","maccs"]
   preproc_ce: "normalize"
   spectrum_normalization: "l1"
-  casmi_num_entries: -1
-  pcasmi_num_entries: -1
 model:
   embed_types: ["fp"]
   ff_layer_type: "neims"
@@ -29,21 +27,14 @@ run:
   batch_size: 1024
   weight_decay: 0.001
   num_epochs: 100
-  num_workers: 10
+  num_workers: 8
   cuda_deterministic: False
   do_test: True
-  do_matching: False
-  do_matching_2: False
   do_casmi: False
   do_pcasmi: False
+  do_casmi22: False
   save_state: True
   save_media: True
-  casmi_save_sim: True
-  casmi_batch_size: 400
-  casmi_num_workers: 10
-  casmi_pred_all: True
-  pcasmi_pred_all: False
-  log_pcasmi_um: True
   log_auxiliary: True
   train_seed: 5585
   split_seed: 420

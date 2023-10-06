@@ -9,7 +9,7 @@ import massformer.data_utils as data_utils
 
 class CFMPredictor(nn.Module):
 
-    def __init__(self, cfm_dp, ds, do_casmi, do_pcasmi, use_rb):
+    def __init__(self, cfm_dp, ds, do_casmi, do_pcasmi, do_casmi22, use_rb=True):
 
         super().__init__()
         # load cfm spectra
@@ -28,69 +28,39 @@ class CFMPredictor(nn.Module):
         else:
             self.primary_rb_df = pd.DataFrame().reindex_like(self.primary_df)
             self.primary_rb_mol_ids = set()
-        if do_casmi:
-            self.casmi_df = pd.read_pickle(
-                os.path.join(cfm_dp, "casmi_spec_df.pkl"))
-            self.casmi_mol_ids = set(self.casmi_df["mol_id"].tolist())
-            self.casmi_df = self.casmi_df.set_index(
-                ["mol_id", "ace", "prec_type"])
+        for casmi_type, casmi_flag in zip(["casmi","pcasmi","casmi22"],[do_casmi, do_pcasmi, do_casmi22]):
+            if not casmi_flag:
+                continue
+            setattr(self, f"{casmi_type}_df", pd.read_pickle(os.path.join(cfm_dp, f"{casmi_type}_spec_df.pkl")))
+            setattr(self, f"{casmi_type}_mol_ids", set(getattr(self, f"{casmi_type}_df")["mol_id"].tolist()))
+            setattr(self, f"{casmi_type}_df", getattr(self, f"{casmi_type}_df").set_index(["mol_id", "ace", "prec_type"]))
             if use_rb:
-                self.casmi_rb_df = pd.read_pickle(
-                    os.path.join(cfm_dp, "casmi_rb_spec_df.pkl"))
-                self.casmi_rb_mol_ids = set(
-                    self.casmi_rb_df["mol_id"].tolist())
-                self.casmi_rb_df = self.casmi_rb_df.set_index(
-                    ["mol_id", "ace", "prec_type"])
+                setattr(self, f"{casmi_type}_rb_df", pd.read_pickle(os.path.join(cfm_dp, f"{casmi_type}_rb_spec_df.pkl")))
+                setattr(self, f"{casmi_type}_rb_mol_ids", set(getattr(self, f"{casmi_type}_rb_df")["mol_id"].tolist()))
+                setattr(self, f"{casmi_type}_rb_df", getattr(self, f"{casmi_type}_rb_df").set_index(["mol_id", "ace", "prec_type"]))
             else:
-                self.casmi_rb_df = pd.DataFrame().reindex_like(self.casmi_df)
-                self.casmi_rb_mol_ids = set()
-        if do_pcasmi:
-            self.pcasmi_df = pd.read_pickle(
-                os.path.join(cfm_dp, "pcasmi_spec_df.pkl"))
-            self.pcasmi_mol_ids = set(self.pcasmi_df["mol_id"].tolist())
-            self.pcasmi_df = self.pcasmi_df.set_index(
-                ["mol_id", "ace", "prec_type"])
-            if use_rb:
-                self.pcasmi_rb_df = pd.read_pickle(
-                    os.path.join(cfm_dp, "pcasmi_rb_spec_df.pkl"))
-                self.pcasmi_rb_mol_ids = set(
-                    self.pcasmi_rb_df["mol_id"].tolist())
-                self.pcasmi_rb_df = self.pcasmi_rb_df.set_index(
-                    ["mol_id", "ace", "prec_type"])
-            else:
-                self.pcasmi_rb_df = pd.DataFrame().reindex_like(self.pcasmi_df)
-                self.pcasmi_rb_mol_ids = set()
+                setattr(self, f"{casmi_type}_rb_df", pd.DataFrame().reindex_like(getattr(self, f"{casmi_type}_df")))
+                setattr(self, f"{casmi_type}_rb_mol_ids", set())
         self.mode = "primary"
         self.supported_aces = np.array([10., 20., 40.])
         self.supported_prec_types = ["[M+H]+"]
         self.default_prec_type = "[M+H]+"
         self.spec_func = lambda mzs, ints: ds.transform_func(
-            ds.bin_func(mzs, ints), train=False)
+            ds.bin_func(mzs, ints))
         self.dummy_weight = nn.Parameter(data=th.ones(1,), requires_grad=True)
         dummy_mzs, dummy_ints = list(zip(*self.primary_df.iloc[0]["peaks"]))
         self.dummy_spec = np.ones_like(self.spec_func(dummy_mzs, dummy_ints))
         self.dummy_spec = self.dummy_spec / self.dummy_spec.shape[0]
 
     def set_mode(self, mode):
-        assert mode in ["primary", "casmi", "pcasmi"]
+        assert mode in ["primary", "casmi", "pcasmi", "casmi22"]
         self.mode = mode
 
     def _get_mode_data(self):
-        if self.mode == "primary":
-            spec_df = self.primary_df
-            mol_ids = self.primary_mol_ids
-            rb_spec_df = self.primary_rb_df
-            rb_mol_ids = self.primary_rb_mol_ids
-        elif self.mode == "casmi":
-            spec_df = self.casmi_df
-            mol_ids = self.casmi_mol_ids
-            rb_spec_df = self.casmi_rb_df
-            rb_mol_ids = self.casmi_rb_mol_ids
-        else:
-            spec_df = self.pcasmi_df
-            mol_ids = self.pcasmi_mol_ids
-            rb_spec_df = self.pcasmi_rb_df
-            rb_mol_ids = self.pcasmi_rb_mol_ids
+        spec_df = getattr(self,f"{self.mode}_df")
+        mol_ids = getattr(self,f"{self.mode}_mol_ids")
+        rb_spec_df = getattr(self,f"{self.mode}_rb_df")
+        rb_mol_ids = getattr(self,f"{self.mode}_rb_mol_ids")
         return spec_df, mol_ids, rb_spec_df, rb_mol_ids
 
     def _map_nce(self, nce, charge, prec_mz):
@@ -145,10 +115,14 @@ class CFMPredictor(nn.Module):
             b_spec.append(spec)
         b_spec = th.as_tensor(np.vstack(b_spec), dtype=th.float32)
         b_spec = b_spec + 0. * self.dummy_weight  # silly trick for autograd
-        return b_spec
+        output_d = {"pred": b_spec}
+        return output_d
 
     def get_attn_mats(self, data):
         raise NotImplementedError
 
     def get_split_params(self):
         raise NotImplementedError
+
+    def count_parameters(self):
+        return 0, 0, 0

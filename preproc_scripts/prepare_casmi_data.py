@@ -7,23 +7,7 @@ import numpy as np
 import massformer.data_utils as data_utils
 from massformer.data_utils import par_apply_series, check_mol_props
 from massformer.misc_utils import none_or_nan
-
-
-def common_filter(spec_df, mol_df, cand_df):
-
-    query_mol_id = set(
-        spec_df["mol_id"]) & set(
-        mol_df["mol_id"]) & set(
-            cand_df["query_mol_id"])
-    cand_mol_id = set(cand_df[cand_df["query_mol_id"].isin(
-        query_mol_id)]["candidate_mol_id"])
-    spec_df = spec_df[spec_df["mol_id"].isin(
-        query_mol_id)].reset_index(drop=True)
-    mol_df = mol_df[mol_df["mol_id"].isin(
-        query_mol_id | cand_mol_id)].reset_index(drop=True)
-    cand_df = cand_df[cand_df["query_mol_id"].isin(
-        query_mol_id) & cand_df["candidate_mol_id"].isin(cand_mol_id)].reset_index(drop=True)
-    return spec_df, mol_df, cand_df
+from massformer.casmi_utils import common_filter, load_mw_cand, prepare_casmi_mol_df, prepare_casmi_cand_df, prepare_casmi_spec_df
 
 
 def main(args):
@@ -186,7 +170,7 @@ def main(args):
         os.path.join(
             args.proc_dp,
             args.casmi_output_dir,
-            "casmi_smiles.txt"),
+            "all_smiles.txt"),
         sep=" ",
         header=False,
         index=False)

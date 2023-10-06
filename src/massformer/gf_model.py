@@ -15,7 +15,7 @@ import massformer.gf_data_utils as gf_data_utils
 logger = logging.getLogger(__name__)
 
 PRETRAINED_MODEL_URLS = {
-    "pcqm4mv2_graphormer_base":"https://zenodo.org/record/8111839/files/checkpoint_best_pcqm4mv2.pt?download=1"
+  "pcqm4mv2_graphormer_base": "https://zenodo.org/record/8399738/files/checkpoint_best_pcqm4mv2.pt?download=1",
 }
 
 
@@ -1098,9 +1098,7 @@ class GFv2Embedder(nn.Module):
         self.args.model_name = kwargs["gf_model_name"]
         self.args.pretrained_model_name = kwargs["gf_pretrain_name"]
         set_data_args(self.args)
-        set_base_architecture_args(self.args)
         set_graphormer_base_architecture_args(self.args)
-        # print("apply_graphormer_init",self.args.apply_graphormer_init)
         self.args.remove_head = True
         # modify args based on kwargs
         self.pretrain = self.args.pretrained_model_name != "none"
@@ -1197,8 +1195,7 @@ def set_data_args(args):
     args.train_epoch_shuffle = False
     args.user_data_dir = ""
 
-
-def set_base_architecture_args(args):
+def set_graphormer_base_architecture_args(args):
     args.dropout = getattr(args, "dropout", 0.1)
     args.attention_dropout = getattr(args, "attention_dropout", 0.1)
     args.act_dropout = getattr(args, "act_dropout", 0.0)
@@ -1216,9 +1213,6 @@ def set_base_architecture_args(args):
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.encoder_normalize_before = getattr(
         args, "encoder_normalize_before", True)
-
-
-def set_graphormer_base_architecture_args(args):
     if args.model_name == "graphormer_base":
         args.encoder_layers = 12
         args.encoder_attention_heads = 32

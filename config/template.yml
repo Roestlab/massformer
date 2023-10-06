@@ -1,5 +1,5 @@
-entity_name: "adamoyoung"
-project_name: "massformer"
+entity_name: "wandb_entity_name"
+project_name: "wandb_project_name"
 run_name: "template"
 
 data:
@@ -39,11 +39,16 @@ data:
   spatial_pos_max: 1024
   casmi_num_entries: -1
   pcasmi_num_entries: -1
+  casmi22_num_entries: -1
   casmi_nces: [20,35,50]
+  casmi22_nces: [35,45,65]
   convert_ce: False
-  casmi_dp: "casmi"
-  pcasmi_dp: "pcasmi"
+  casmi_dp: "casmi_2016"
+  pcasmi_dp: "nist20_outlier"
+  casmi22_dp: "casmi_2022"
   gf_algos_v: "algos2"
+  casmi_fp: False
+  process_spec_old: False
 
 model:
   embed_types: ["fp"]
@@ -82,6 +87,8 @@ model:
   reinit_layernorm: False
   cfm_model: False
   cfm_rb: True
+  esp_model: False
+  esp_new_reverse: False
   prec_mass_offset: 0
   embed_dim: -1
   embed_agg: "concat"
@@ -110,6 +117,9 @@ run:
   scheduler_period: 5
   scheduler_ratio: 0.1
   scheduler_peak_lr: 0.0002
+  scheduler_end_lr: 0.000000001 #1e-9
+  scheduler_warmup_frac: 0.1
+  scheduler_power: 1.0
   match_seed: 69
   train_seed: 112233
   device: "cuda:0"
@@ -120,14 +130,14 @@ run:
   num_track: 5
   pred_viz: True
   track_plot_title: True
-  do_matching: False
-  do_matching_2: False
   do_casmi: False
   do_pcasmi: False
+  do_casmi22: False
   casmi_batch_size: -1
   casmi_num_workers: -1
   casmi_pred_all: True
   pcasmi_pred_all: False
+  casmi22_pred_all: False
   log_pcasmi_um: False
   match_num_cands: 50
   match_num_reps: 1
@@ -159,3 +169,7 @@ run:
   grad_acc_interval: 1
   test_sets: ["test"]
   save_test_sims: False
+  ignore_casmi_in_split: False
+  lda_topic_loss: False
+  lda_topic_loss_weight: 0.01
+  print_stats: False

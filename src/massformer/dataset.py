@@ -11,11 +11,13 @@ import dgllife.utils as chemutils
 import torch_geometric.data
 from tqdm import tqdm
 import itertools
-import multiprocessing
+from sklearn.decomposition import LatentDirichletAllocation
 
 from massformer.misc_utils import EPS, np_temp_seed, np_scatter_add, np_one_hot, flatten_lol, timeout, none_or_nan
 import massformer.data_utils as data_utils
+from massformer.data_utils import H_MASS, O_MASS, N_MASS, NA_MASS
 import massformer.gf_data_utils as gf_data_utils
+import massformer.esp_data_utils as esp_data_utils
 import massformer.spec_utils as spec_utils
 
 
@@ -23,7 +25,7 @@ def data_to_device(data_d, device, non_blocking):
 
     new_data_d = {}
     for k, v in data_d.items():
-        if isinstance(v, th.Tensor) or isinstance(v, dgl.DGLGraph):
+        if isinstance(v, th.Tensor) or isinstance(v, dgl.DGLGraph) or isinstance(v, torch_geometric.data.Data):
             new_data_d[k] = v.to(device, non_blocking=non_blocking)
         elif isinstance(v, dict):
             new_v = {}
@@ -38,7 +40,7 @@ def data_to_device(data_d, device, non_blocking):
 class TrainSubset(th_data.Subset):
 
     def __getitem__(self, idx):
-        return self.dataset.__getitem__(self.indices[idx], train=True)
+        return self.dataset.__getitem__(self.indices[idx])
 
 
 class BaseDataset(th_data.Dataset):
@@ -48,7 +50,8 @@ class BaseDataset(th_data.Dataset):
         self.is_fp_dset = "fp" in dset_types
         self.is_graph_dset = "graph" in dset_types
         self.is_gf_v2_dset = "gf_v2" in dset_types
-        assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset)
+        self.is_esp_dset = "esp" in dset_types
+        assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset or self.is_esp_dset)
         for k, v in kwargs.items():
             setattr(self, k, v)
         assert os.path.isdir(self.proc_dp), self.proc_dp
@@ -235,13 +238,13 @@ class BaseDataset(th_data.Dataset):
         self.mean_ce = self.spec_df[self.ce_key].mean()
         self.std_ce = self.spec_df[self.ce_key].std()
 
-    def __getitem__(self, idx, train=False):
+    def __getitem__(self, idx):
 
         spec_entry = self.spec_df.iloc[idx]
         mol_id = spec_entry["mol_id"]
         # mol_entry = self.mol_df[self.mol_df["mol_id"] == mol_id].iloc[0]
         mol_entry = self.mol_df.loc[mol_id]
-        data = self.process_entry(spec_entry, mol_entry["mol"], train=train)
+        data = self.process_entry(spec_entry, mol_entry["mol"])
         return data
 
     def __len__(self):
@@ -250,6 +253,7 @@ class BaseDataset(th_data.Dataset):
 
     def bin_func(self, mzs, ints, return_index=False):
 
+        assert self.ints_thresh == 0., self.ints_thresh
         return spec_utils.bin_func(
             mzs,
             ints,
@@ -258,40 +262,20 @@ class BaseDataset(th_data.Dataset):
             self.ints_thresh,
             return_index)
 
-    def transform_func(self, spec, train=False):
+    def transform_func(self, spec):
 
-        # scale spectrum so that max value is 1000
-        spec = spec * (1000. / np.max(spec))
-        # remove noise
-        spec = spec * (spec > self.ints_thresh * np.max(spec)).astype(float)
-        # if train:
-        transform = self.transform
-        # else:
-        # 	transform = self.eval_transform
-        # transform signal
-        if transform == "log10":
-            spec = np.log10(spec + 1)
-        elif transform == "log10over3":
-            spec = np.log10(spec + 1) / 3
-        elif transform == "loge":
-            spec = np.log(spec + 1)
-        elif transform == "sqrt":
-            spec = np.sqrt(spec)
-        elif transform == "linear":
-            raise NotImplementedError
-        elif transform == "none":
-            pass
+        if self.process_spec_old:
+            spec = spec_utils.process_spec_old(
+                spec,
+                self.transform,
+                self.spectrum_normalization,
+                self.ints_thresh)
         else:
-            raise ValueError("invalid transform")
-        # normalize
-        if self.spectrum_normalization == "l1":
-            spec = spec / np.sum(np.abs(spec))
-        elif self.spectrum_normalization == "l2":
-            spec = spec / np.sqrt(np.sum(spec**2))
-        elif self.spectrum_normalization == "none":
-            pass
-        else:
-            raise ValueError("invalid spectrum_normalization")
+            spec = spec_utils.process_spec(
+                th.as_tensor(spec),
+                self.transform,
+                self.spectrum_normalization)
+            spec = spec.numpy()
         return spec
 
     def get_split_masks(
@@ -300,7 +284,8 @@ class BaseDataset(th_data.Dataset):
             test_frac,
             sec_frac,
             split_key,
-            split_seed):
+            split_seed,
+            ignore_casmi):
 
         assert split_key in ["inchikey_s", "scaffold"], split_key
         assert len(self.secondary_dset) <= 1, self.secondary_dset
@@ -336,7 +321,10 @@ class BaseDataset(th_data.Dataset):
         test_num = round(len(prim_only_key_list) * test_frac)
         val_num = round(len(prim_only_key_list) * val_frac)
         # make sure that test set gets all of the casmi keys!
-        prim_only_and_casmi = prim_only_key & self.casmi_info[split_key]
+        if not ignore_casmi:
+            prim_only_and_casmi = prim_only_key & self.casmi_info[split_key]
+        else:
+            prim_only_and_casmi = set()
         if test_num > 0:
             assert len(prim_only_and_casmi) <= test_num
             test_num -= len(prim_only_and_casmi)
@@ -404,7 +392,7 @@ class BaseDataset(th_data.Dataset):
                 f"{sec_dset} overlap: prim spec = {cur_prim_both.shape[0]}, sec spec = {cur_sec_both.shape[0]}, mol = {cur_prim_both['mol_id'].nunique()}")
         return train_mask, val_mask, test_mask, sec_masks
 
-    def get_spec_feats(self, spec_entry, train=False):
+    def get_spec_feats(self, spec_entry):
 
         # convert to a dense vector
         mol_id = th.tensor(spec_entry["mol_id"]).unsqueeze(0)
@@ -416,7 +404,7 @@ class BaseDataset(th_data.Dataset):
         prec_mz_bin = self.bin_func([prec_mz], None, return_index=True)[0]
         prec_diff = max(mz - prec_mz for mz in mzs)
         num_peaks = len(mzs)
-        bin_spec = self.transform_func(self.bin_func(mzs, ints), train=train)
+        bin_spec = self.transform_func(self.bin_func(mzs, ints))
         spec = th.as_tensor(bin_spec, dtype=th.float32).unsqueeze(0)
         col_energy = spec_entry[self.ce_key]
         inst_type = spec_entry["inst_type"]
@@ -463,7 +451,6 @@ class BaseDataset(th_data.Dataset):
             prec_type_meta,
             frag_mode_meta,
             col_energy_meta]
-        # spec_meta_list = [prec_type_meta,col_energy_meta]
         spec_meta = th.cat(spec_meta_list, dim=0).unsqueeze(0)
         spec_feats = {
             "spec": spec,
@@ -485,6 +472,9 @@ class BaseDataset(th_data.Dataset):
         if "casmi_id" in spec_entry:
             spec_feats["casmi_id"] = th.tensor(
                 spec_entry["casmi_id"]).unsqueeze(0)
+        if "lda_topic" in spec_entry:
+            spec_feats["lda_topic"] = th.tensor(
+                spec_entry["lda_topic"]).unsqueeze(0)
         return spec_feats
 
     def get_dataloaders(self, run_d):
@@ -494,13 +484,14 @@ class BaseDataset(th_data.Dataset):
         sec_frac = run_d["sec_frac"]
         split_key = run_d["split_key"]
         split_seed = run_d["split_seed"]
+        ignore_casmi = run_d["ignore_casmi_in_split"]
         assert run_d["batch_size"] % run_d["grad_acc_interval"] == 0
         batch_size = run_d["batch_size"] // run_d["grad_acc_interval"]
         num_workers = run_d["num_workers"]
         pin_memory = run_d["pin_memory"] if run_d["device"] != "cpu" else False
 
         train_mask, val_mask, test_mask, sec_masks = self.get_split_masks(
-            val_frac, test_frac, sec_frac, split_key, split_seed)
+            val_frac, test_frac, sec_frac, split_key, split_seed, ignore_casmi)
         all_idx = np.arange(len(self))
         # th_data.RandomSampler()
         train_ss = TrainSubset(self, all_idx[train_mask])
@@ -679,6 +670,63 @@ class BaseDataset(th_data.Dataset):
             track_dl_dict["spec"] = spec_dl
         return track_dl_dict
 
+    def compute_lda(self, run_d):
+        
+        if not run_d["lda_topic_loss"]:
+            return
+
+        def lda_transform(spec):
+            spec_max = np.maximum(EPS,np.max(spec,axis=1).reshape(-1,1))
+            # convert each peak to an integer percentage of maximum
+            spec = (spec / spec_max) * 100.
+            spec = np.round(spec).astype(int)
+            return spec
+
+        val_frac = run_d["val_frac"]
+        test_frac = run_d["test_frac"]
+        sec_frac = run_d["sec_frac"]
+        split_key = run_d["split_key"]
+        split_seed = run_d["split_seed"]
+        ignore_casmi = run_d["ignore_casmi_in_split"]
+        train_mask, _, _, _ = self.get_split_masks(
+            val_frac, test_frac, sec_frac, split_key, split_seed, ignore_casmi)
+        all_idx = np.arange(len(self))
+        train_idx = all_idx[train_mask]
+        train_spec_id = self.spec_df.iloc[train_idx]["spec_id"].to_numpy()
+        # load all data
+        all_data = self.load_all(["spec_id","spec"])
+        all_spec_id = all_data["spec_id"].numpy()
+        other_spec_id = np.setdiff1d(all_spec_id,train_spec_id)
+        train_spec = all_data["spec"][np.isin(all_spec_id,train_spec_id)]
+        # untransform
+        train_spec = spec_utils.unprocess_spec(train_spec,self.transform).numpy()
+        # lda transform
+        train_spec = lda_transform(train_spec)
+        # fit lda
+        lda = LatentDirichletAllocation(
+            n_components=100, # hardcoded
+            verbose=3,
+            n_jobs=min(10, len(os.sched_getaffinity(0))),
+            random_state=run_d["train_seed"]
+        )
+        lda_topic = lda.fit_transform(train_spec)
+        # create dummy entries for other_spec_id
+        spec_id = np.concatenate([train_spec_id,other_spec_id],axis=0)
+        lda_topic = np.concatenate([lda_topic,np.zeros((other_spec_id.shape[0],lda_topic.shape[1]))],axis=0)
+        lda_topic = [row[0] for row in np.split(lda_topic,lda_topic.shape[0],axis=0)]
+        # add them to the spec_df
+        lda_df = pd.DataFrame(
+            {
+                "spec_id": spec_id,
+                "lda_topic": lda_topic
+            }
+        )
+        self.spec_df = self.spec_df.merge(
+            lda_df,
+            on=["spec_id"],
+            how="inner"
+        )
+
     def get_data_dims(self):
 
         data = self.__getitem__(0)
@@ -738,19 +786,25 @@ class BaseDataset(th_data.Dataset):
                 elif isinstance(data_ds[0][k], dgl.DGLGraph):
                     batch_data_d[k] = dgl.batch(v)
                 elif isinstance(data_ds[0][k], torch_geometric.data.Data):
-                    batch_data_d[k] = gf_data_utils.collator(
-                        v
-                    )
+                    if k == "gf_v2_data":
+                        batch_data_d[k] = gf_data_utils.collator(
+                            v
+                        )
+                    else:
+                        assert k == "esp_graph", k
+                        batch_data_d[k] = esp_data_utils.collator(
+                            v
+                        )
                 else:
-                    raise ValueError
+                    raise ValueError(f"{type(data_ds[0][k])} is not supported")
             return batch_data_d
 
         return _collate
 
-    def process_entry(self, spec_entry, mol, train=False):
+    def process_entry(self, spec_entry, mol):
 
         # initialize data with shared attributes
-        spec_feats = self.get_spec_feats(spec_entry, train=train)
+        spec_feats = self.get_spec_feats(spec_entry)
         data = {**spec_feats}
         data["smiles"] = [data_utils.mol_to_smiles(mol)]
         data["formula"] = [data_utils.mol_to_formula(mol)]
@@ -792,6 +846,19 @@ class BaseDataset(th_data.Dataset):
             gf_v2_data = gf_data_utils.gf_preprocess(
                 mol, spec_entry["spec_id"], algos_v=self.gf_algos_v)
             data["gf_v2_data"] = gf_v2_data
+        if self.is_esp_dset:
+            esp_graph, esp_meta = esp_data_utils.esp_preprocess(
+                mol,
+                spec_entry["prec_type"],
+                spec_entry[self.ce_key],
+                [self.prec_type_i2c[i] for i in range(len(self.prec_type_i2c))],
+            )
+            data["esp_graph"] = esp_graph
+            data["esp_meta"] = esp_meta
+        if self.casmi_fp:
+            fp = data_utils.make_maccs_fingerprint(mol)
+            fp = th.as_tensor(fp, dtype=th.float32).unsqueeze(0)
+            data["casmi_fp"] = fp
         return data
 
     def get_atom_featurizer(self):
@@ -837,12 +904,8 @@ class BaseDataset(th_data.Dataset):
             raise ValueError(
                 f"Invalid atom_feature_mode: {self.atom_feature_mode}")
 
-        # atom_mass_fun = chemutils.ConcatFeaturizer(
-        # 	[chemutils.atom_mass]
-        # )
-
         return chemutils.BaseAtomFeaturizer(
-            {"h": atom_featurizer_funs}  # , "m": atom_mass_fun}
+            {"h": atom_featurizer_funs}
         )
 
     def get_bond_featurizer(self):
@@ -872,7 +935,7 @@ class BaseDataset(th_data.Dataset):
         for smiles in smiles_list:
             mol = data_utils.mol_from_smiles(smiles, standardize=True)
             assert not none_or_nan(mol)
-            data = self.process_entry(ref_spec_entry, mol, train=False)
+            data = self.process_entry(ref_spec_entry, mol)
             data_list.append(data)
         collate_fn = self.get_collate_fn()
         batch_data = collate_fn(data_list)
@@ -892,7 +955,7 @@ class BaseDataset(th_data.Dataset):
             self,
             batch_size=100,
             collate_fn=collate_fn,
-            num_workers=min(10, multiprocessing.cpu_count()),
+            num_workers=min(10, len(os.sched_getaffinity(0))),
             pin_memory=False,
             shuffle=False,
             drop_last=False
@@ -914,14 +977,17 @@ class CASMIDataset(BaseDataset):
         self.is_fp_dset = "fp" in dset_types
         self.is_graph_dset = "graph" in dset_types
         self.is_gf_v2_dset = "gf_v2" in dset_types
+        self.is_esp_dset = "esp" in dset_types
         assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset)
         for k, v in kwargs.items():
             setattr(self, k, v)
         if casmi_type == "casmi":
             casmi_dp = self.casmi_dp
-        else:
-            assert casmi_type == "pcasmi"
+        elif casmi_type == "pcasmi":
             casmi_dp = self.pcasmi_dp
+        else:
+            assert casmi_type == "casmi22"
+            casmi_dp = self.casmi22_dp
         self.spec_df = pd.read_pickle(
             os.path.join(
                 self.proc_dp,
@@ -946,10 +1012,10 @@ class CASMIDataset(BaseDataset):
         # select the spectra
         self.spec_df = self.spec_df[self.spec_df["ion_mode"] == "P"].reset_index(
             drop=True)
-        if casmi_type == "casmi" and self.casmi_num_entries > -1:
-            assert self.casmi_num_entries <= self.spec_df.shape[0]
+        if casmi_type in ["casmi","casmi22"] and getattr(self,f"{casmi_type}_num_entries") > -1:
+            assert getattr(self,f"{casmi_type}_num_entries") <= self.spec_df.shape[0]
             self.spec_df = self.spec_df.sample(
-                n=self.casmi_num_entries, replace=False, random_state=6699)
+                n=getattr(self,f"{casmi_type}_num_entries"), replace=False, random_state=6699)
         elif casmi_type == "pcasmi" and self.pcasmi_num_entries > -1:
             assert self.pcasmi_num_entries <= self.spec_df["group_id"].nunique(
             )
@@ -1015,11 +1081,12 @@ class CASMIDataset(BaseDataset):
         assert (self.spec_df["inst_type"] == "FT").all()
         assert (self.spec_df["frag_mode"] == "HCD").all()
         self._copy_from_ds(ds)
-        if casmi_type == "casmi":
+        if casmi_type in ["casmi","casmi22"]:
             # this is the classic CASMI challenge
             assert self.spec_df["nce"].isna().all()
             spec_dfs = []
-            for nce_idx, nce in enumerate(self.casmi_nces):
+            casmi_nces = getattr(self,f"{casmi_type}_nces")
+            for nce_idx, nce in enumerate(casmi_nces):
                 spec_df = self.spec_df.copy(deep=True)
                 spec_df.loc[:, "nce"] = nce
                 # grouping is by mol, one spec per mol
@@ -1114,12 +1181,13 @@ class CASMISpecDataset(th_data.Dataset):
 
         spec_entry = self.spec_df.iloc[idx]
         mol_id = spec_entry["mol_id"]
-        if mol_id in self.mol_df:
+        if mol_id in self.mol_df["mol_id"]:
             mol_entry = self.mol_df.loc[mol_id]
         else:
+            raise ValueError(f"mol_id {mol_id} not found in mol_df")
             # just choose an artbitrary mol_entry
             mol_entry = self.mol_df.iloc[0]
-        data = self.process_entry(spec_entry, mol_entry["mol"], train=False)
+        data = self.process_entry(spec_entry, mol_entry["mol"])
         return data
 
     def __len__(self):
@@ -1151,7 +1219,7 @@ class CASMIGroupDataset(th_data.Dataset):
         spec_entry = self.spec_df.loc[spec_id].copy()
         # don't use .loc[:,"mol_id"] since it's a single row
         spec_entry.loc["mol_id"] = mol_id
-        data = self.process_entry(spec_entry, mol_entry["mol"], train=False)
+        data = self.process_entry(spec_entry, mol_entry["mol"])
         return data
 
     def __len__(self):
@@ -1159,26 +1227,156 @@ class CASMIGroupDataset(th_data.Dataset):
         return self.mol_spec_df.shape[0]
 
 
-def get_default_ds(**data_d_overwrite):
+def get_dset_types(embed_types):
+
+    dset_types = set()
+    for embed_type in embed_types:
+        if embed_type == "fp":
+            dset_types.add("fp")
+        elif embed_type in ["gat", "wln", "gin_pt"]:
+            dset_types.add("graph")
+        elif embed_type in ["gf"]:
+            dset_types.add("gf")
+        elif embed_type in ["gf_v2"]:
+            dset_types.add("gf_v2")
+        elif embed_type in ["esp"]:
+            dset_types.add("esp")
+        else:
+            raise ValueError(f"invalid embed_type {embed_type}")
+    dset_types = list(dset_types)
+    return dset_types
+
+
+def get_default_ds(data_d_ow=dict(),model_d_ow=dict(),run_d_ow=dict()):
 
     from massformer.runner import load_config
     template_fp = "config/template.yml"
     custom_fp = None
     device_id = None
+    checkpoint_name = None
     _, _, _, data_d, model_d, run_d = load_config(
-        template_fp, custom_fp, device_id)
-    for k, v in data_d_overwrite.items():
+        template_fp, 
+        custom_fp, 
+        device_id,
+        checkpoint_name
+    )
+    for k, v in data_d_ow.items():
         if k in data_d:
             data_d[k] = v
+    for k,v in model_d_ow.items():
+        if k in model_d:
+            model_d[k] = v
+    for k,v in run_d_ow.items():
+        if k in run_d:
+            run_d[k] = v
     return data_d, model_d, run_d
 
 
-def get_dataloader(dset_types, **data_d_overwrite):
+def get_dataloader(data_d_ow=dict(),model_d_ow=dict(),run_d_ow=dict()):
 
-    data_d, model_d, run_d = get_default_ds(**data_d_overwrite)
-    run_d["num_workers"] = 0
-    run_d["match_num_workers"] = 0
-    run_d["match_batch_size"] = 2
+    data_d, model_d, run_d = get_default_ds(
+        data_d_ow=data_d_ow,
+        model_d_ow=model_d_ow,
+        run_d_ow=run_d_ow
+    )
+    dset_types = get_dset_types(model_d["embed_types"])
     ds = BaseDataset(*dset_types, **data_d)
+    ds.compute_lda(run_d)
     dl_dict, split_id_dict = ds.get_dataloaders(run_d)
-    return ds, dl_dict
+    return ds, dl_dict, data_d, model_d, run_d
+
+
+def get_esp_dicts():
+
+    data_d_ow = dict(
+        num_entries=1000,
+        primary_dset=["nist"],
+        secondary_dset=[],
+        ce_key="nce",
+        inst_type=["FT"],
+        frag_mode=["HCD"],
+        pos_prec_type=['[M+H]+', '[M+H-H2O]+', '[M+H-2H2O]+', '[M+2H]2+', '[M+H-NH3]+', "[M+Na]+"],
+        fp_types=["morgan","rdkit","maccs"],
+        preproc_ce="none",
+        spectrum_normalization="l1",
+        casmi_num_entries=-1,
+        pcasmi_num_entries=-1,
+    )
+
+    model_d_ow = dict(
+        embed_types=["esp"],
+        model_seed=6666,
+        esp_model=True,
+    )
+
+    run_d_ow = dict(
+        loss="cos",
+        sim="cos",
+        lr=5e-4, ##
+        batch_size=128, ##
+        weight_decay=0.0, ##
+        num_epochs=2, #100
+        num_workers=0, #10,
+        cuda_deterministic=False,
+        do_test=True,
+        do_casmi=False,
+        do_pcasmi=False,
+        save_state=True,
+        save_media=True,
+        casmi_save_sim=True,
+        casmi_batch_size=400,
+        casmi_num_workers=10,
+        casmi_pred_all=True,
+        pcasmi_pred_all=False,
+        log_pcasmi_um=True,
+        log_auxiliary=True,
+        train_seed=5585,
+        split_seed=420,
+        split_key="inchikey_s",
+        log_tqdm=False,
+        test_sets=["train","val","test"],
+        save_test_sims=True,
+        lda_topic_loss=True,
+    )
+
+    return data_d_ow, model_d_ow, run_d_ow
+
+
+if __name__ == "__main__":
+
+    th.multiprocessing.set_sharing_strategy('file_system')
+
+    data_d_ow, model_d_ow, run_d_ow = get_esp_dicts()
+
+    ds, dl_dict, data_d, model_d, run_d = get_dataloader(
+        data_d_ow=data_d_ow,
+        model_d_ow=model_d_ow,
+        run_d_ow=run_d_ow
+    )
+
+    item = ds[0]
+    print(item.keys())
+    print(item["esp_graph"])
+    print(item["esp_meta"])
+    print(
+        th.mean(item["spec"],dim=1),
+        th.std(item["spec"],dim=1),
+        th.min(item["spec"],dim=1)[0],
+        th.max(item["spec"],dim=1)[0]
+    )
+    # print(item["lda_topic"])
+    
+    train_dl = dl_dict["primary"]["train"]
+    print(len(train_dl))
+
+    # get one batch
+    train_iter = iter(train_dl)
+    batch = next(train_iter)
+    print(batch.keys())
+
+    # iterate through batches
+    train_iter = iter(train_dl)
+    for batch in train_iter:
+        pass
+
+    import pdb; pdb.set_trace()

@@ -10,8 +10,6 @@ data:
   fp_types:   ["morgan","rdkit","maccs"]
   preproc_ce: "normalize"
   spectrum_normalization: "l1"
-  casmi_num_entries: -1
-  pcasmi_num_entries: -1
   gf_algos_v: "algos2"
 model:
   embed_types: ["gf_v2"]
@@ -42,26 +40,19 @@ run:
   dp_num_gpus: 0
   flag: True
   num_epochs: 20
-  num_workers: 10
+  num_workers: 8
   cuda_deterministic: False
   do_test: True
-  do_matching: False
-  do_matching_2: False
   do_casmi: False
   do_pcasmi: False
+  do_casmi22: False
   save_state: True
   save_media: True
-  casmi_save_sim: True
-  casmi_batch_size: 512
-  casmi_num_workers: 10
-  casmi_pred_all: True
-  pcasmi_pred_all: False
-  log_pcasmi_um: True
   log_auxiliary: True
   train_seed: 5585
   split_seed: 420
   split_key: "inchikey_s"
   log_tqdm: False
-  grad_acc_interval: 4 # for 12GB
+  grad_acc_interval: 2 # for 24GB
   test_sets: ["train","val","test"]
   save_test_sims: True
