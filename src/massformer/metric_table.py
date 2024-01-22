@@ -1,6 +1,5 @@
 import torch as th
 import torch_scatter as th_s
-import numpy as np
 import wandb
 import os
 

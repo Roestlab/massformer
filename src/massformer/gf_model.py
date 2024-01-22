@@ -9,8 +9,6 @@ from torch.hub import load_state_dict_from_url
 import torch.distributed as dist
 import argparse
 
-import massformer.gf_data_utils as gf_data_utils
-
 
 logger = logging.getLogger(__name__)
 

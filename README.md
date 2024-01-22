@@ -126,9 +126,9 @@ mol: 964, 138, 274, 1376
 > test, mol_loss_obj_mean = 0.4836
 ```
 
-`mol_loss_obj_mean` is the loss averaged over molecules (instead of individual spectra) on a heldout portion of the MoNA dataset. See the [config](config/demo/demo_eval.yml), the [loss definitions](src/massformer/losses.py), and the [runner script](src/massformer/runner.py) for more detailed information about metrics.
+`mol_loss_obj_mean` is the loss averaged over molecules (instead of individual spectra) on a heldout portion of the MoNA dataset. See the [config](config/demo/demo_eval.yml), the [loss definitions](src/massformer/losses.py), and the [runner file](src/massformer/runner.py) for more detailed information about metrics.
 
-*Note: none of the steps below are required to run the demo, but are helpful for reproducing results from the paper*
+*Note: none of the steps below are required to run the demo, but are helpful for reproducing results from the paper.*
 
 ## Downloading the Raw Spectrum Data
 
@@ -139,13 +139,13 @@ bash download_scripts/download_mona_raw.sh
 bash download_script/download_casmi_raw.sh
 ```
 
-The [NIST 2020 LC-MS/MS library](https://www.nist.gov/programs-projects/nist20-updates-nist-tandem-and-electron-ionization-spectral-libraries) is not available for download directly, but can be purchased from an authorized distributor and exported using the instructions below.
+The [NIST 2020 MS/MS Library](https://www.nist.gov/programs-projects/nist20-updates-nist-tandem-and-electron-ionization-spectral-libraries) is not available for download directly, but can be purchased from an authorized distributor and exported using the instructions below.
 
 ## Exporting the NIST Data
 
-*Note: this step requires a Windows System or Virtual Machine*
+*Note: this step requires a Windows System or Virtual Machine.*
 
-*Note: these instructions are for NIST 2020, the NIST 2023 LC-MS/MS library does not support plain text export with lib2nist*
+*Note: these instructions are for NIST 2020, the NIST 2023 MS/MS Library does not support export with lib2nist.*
 
 The spectra and associated compounds can be exported to MSP/MOL format using the free [lib2nist software](https://chemdata.nist.gov/mass-spc/ms-search/Library_conversion_tool.html). The resulting export will contain a single MSP file with all of the mass spectra, and multiple MOL files which include the molecular structure information (linked to the spectra by ID). The screenshot below indicates appropriate lib2nist export settings.
 
@@ -250,10 +250,10 @@ The model configs for the experiments are stored in the [config](config/) direct
 
 Configurations exist of MassFormer (MF) and the baseline methods (FP, WLN, and CFM). 
 
-To train and evluate a model, simply choose a configuration and pass it to the runner.py script. For example, to run the [mona_scaffold_all_MF](config/all_prec_type/mona_scaffold_MF.yml) experiment (train MassFormer on NIST data, and evaluate on MoNA using a scaffold split), you can use the following command: 
+To train and evaluate a model, simply choose a configuration and pass it to the [run_train_eval.py](scripts/run_train_eval.py) script. For example, to run the [mona_scaffold_all_MF](config/all_prec_type/mona_scaffold_MF.yml) experiment (train MassFormer on NIST data, and evaluate on MoNA using a scaffold split), you can use the following command: 
 
 ```
-python src/massformer/runner.py -c config/all_prec_type/mona_scaffold_all_MF.yml -w online
+python scripts/run_train_eval.py -c config/all_prec_type/mona_scaffold_all_MF.yml -w online
 ```
 
 The `-w` argument controls the wandb logging (online, offline, or off). Note that training a model without a GPU will be very time-consuming.
@@ -324,7 +324,7 @@ run:
   do_casmi22: False
   save_state: True
   save_media: True
-  log_auxiliary: False
+  log_auxiliary: True
   train_seed: 5585
   split_seed: 420
   split_key: "scaffold"
@@ -349,7 +349,7 @@ The [inference script](scripts/run_inference.py) allows a pretrained model to ma
 python scripts/run_inference.py -c config/demo/demo_eval.yml -s predictions/example_smiles.csv -o predictions/example_predictions.csv -d 0
 ```
 
-*Note: if you are using the MF-CPU environment, replace the `-d 0` argument with `-d -1`*
+*Note: if you are using the MF-CPU environment, replace the `-d 0` argument with `-d -1`.*
 
 The smiles file (`-s` argument, see [this file](predictions/example_smiles.csv) for an example) is a csv file with two columns: the first column is a molecule id, and the second column is the SMILES string. 
 
@@ -359,10 +359,14 @@ The precursor adducts and normalized collision energies can be controlled via co
 
 ## Checkpoints for Models from the Manuscript
 
-All models in the manuscript (except CFM) are trained on NIST 2020 LC-MS/MS library. NIST does not support redistribution of parameters for models trained on this library. As such, we cannot provide model checkpoints.
+All models in the manuscript (except CFM) are trained on NIST 2020 MS/MS Library. NIST does not support redistribution of parameters for models trained on this library. As such, we cannot provide model checkpoints.
 
 However, it should be possible to reproduce our models by following the instructions to [export](#exporting-the-nist-data) and [preprocess](#preprocessing-the-spectrum-datasets) the data, and training a model using the [training script](scripts/run_train_eval.py) with the appropriate config.
 
 If you are having trouble, feel free to create a GitHub issue or send an email to ayoung [AT] cs [DOT] toronto [DOT] edu.
 
-*Note: there are not any CFM checkpoints, since we use pre-computed CFM predictions (see [previous section](#downloading-the-cfm-predictions)) in our experiments. If you want to use a pretrained CFM model on your own data, visit [their website](https://cfmid.wishartlab.com/)*
+*Note: there are not any CFM checkpoints, since we use pre-computed CFM predictions (see [previous section](#downloading-the-cfm-predictions)) in our experiments. If you want to use a pretrained CFM model on your own data, visit [their website](https://cfmid.wishartlab.com/)*.
+
+## Training a Model on All of the Data
+
+It may be useful to get a version of MassFormer that is trained on all available data (i.e. both NIST 2020 and MoNA spectra). We have provided config files for such models in the [train_both](config/train_both) subdirectory. There are four different configs: two for training with all supported precursor adducts ([1.0 Da bin size](config/train_both/train_both_all_MF.yml), [0.1 Da bin size](config/train_both/train_both_all_MF_hr.yml)) and two for training for training with \[M+H\]+ precusor adducts ([1.0 Da bin size](config/train_both/train_both_mh_MF.yml), [0.1 Da bin size](config/train_both/train_both_mh_MF_hr.yml)).

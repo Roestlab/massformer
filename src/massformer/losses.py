@@ -139,7 +139,7 @@ def get_sim_func(sim_type, mz_bin_res):
             targ = (targ**0.5).unsqueeze(2)
             numerator = th.matmul(pred, targ).squeeze(-1).squeeze(-1)
             denominator = th.sum(pred, dim=1) * th.sum(targ, dim=1)
-            return numerator / denominator
+            return numerator / th.clamp(denominator, min=EPS)
         sim_func = s_dot
     elif sim_type == "wsdot":
         def w_s_dot(pred, targ):
@@ -148,7 +148,7 @@ def get_sim_func(sim_type, mz_bin_res):
             targ = ((weights * targ)**0.5).unsqueeze(2)
             numerator = th.matmul(pred, targ).squeeze(-1).squeeze(-1)
             denominator = th.sum(pred, dim=1) * th.sum(targ, dim=1)
-            return numerator / denominator
+            return numerator / th.clamp(denominator, min=EPS)
         sim_func = w_s_dot
     elif sim_type == "js":
         def js(pred, targ):
@@ -166,7 +166,7 @@ def get_sim_func(sim_type, mz_bin_res):
                 targ.float().unsqueeze(2)
             ).squeeze(-1).squeeze(-1)
             denominator = th.sum((pred | targ).float(), dim=1)
-            return numerator / denominator
+            return numerator / th.clamp(denominator, min=EPS)
         sim_func = jacc
     else:
         raise ValueError

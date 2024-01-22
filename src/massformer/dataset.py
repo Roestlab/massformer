@@ -1,7 +1,5 @@
 import torch as th
 import torch.utils.data as th_data
-import torch.nn.functional as F
-import json
 import pandas as pd
 import numpy as np
 import os
@@ -13,11 +11,9 @@ from tqdm import tqdm
 import itertools
 from sklearn.decomposition import LatentDirichletAllocation
 
-from massformer.misc_utils import EPS, np_temp_seed, np_scatter_add, np_one_hot, flatten_lol, timeout, none_or_nan
+from massformer.misc_utils import EPS, np_temp_seed, np_one_hot, flatten_lol, none_or_nan
 import massformer.data_utils as data_utils
-from massformer.data_utils import H_MASS, O_MASS, N_MASS, NA_MASS
 import massformer.gf_data_utils as gf_data_utils
-import massformer.esp_data_utils as esp_data_utils
 import massformer.spec_utils as spec_utils
 
 
@@ -50,8 +46,7 @@ class BaseDataset(th_data.Dataset):
         self.is_fp_dset = "fp" in dset_types
         self.is_graph_dset = "graph" in dset_types
         self.is_gf_v2_dset = "gf_v2" in dset_types
-        self.is_esp_dset = "esp" in dset_types
-        assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset or self.is_esp_dset)
+        assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset)
         for k, v in kwargs.items():
             setattr(self, k, v)
         assert os.path.isdir(self.proc_dp), self.proc_dp
@@ -392,6 +387,21 @@ class BaseDataset(th_data.Dataset):
                 f"{sec_dset} overlap: prim spec = {cur_prim_both.shape[0]}, sec spec = {cur_sec_both.shape[0]}, mol = {cur_prim_both['mol_id'].nunique()}")
         return train_mask, val_mask, test_mask, sec_masks
 
+    def ce_func(self, col_energy):
+
+        if self.preproc_ce == "normalize":
+            col_energy_meta = th.tensor(
+                [(col_energy - self.mean_ce) / (self.std_ce + EPS)], dtype=th.float32)
+        elif self.preproc_ce == "quantize":
+            ce_bins = np.arange(0, 161, step=20)  # 8 bins
+            ce_idx = np.digitize(col_energy, bins=ce_bins, right=False)
+            col_energy_meta = th.ones([len(ce_bins) + 1], dtype=th.float32)
+            col_energy_meta[ce_idx] = 1.
+        else:
+            assert self.preproc_ce == "none", self.preproc_ce
+            col_energy_meta = th.tensor([col_energy], dtype=th.float32)
+        return col_energy_meta
+
     def get_spec_feats(self, spec_entry):
 
         # convert to a dense vector
@@ -419,17 +429,7 @@ class BaseDataset(th_data.Dataset):
             min(prec_mz_bin, spec.shape[1] - 1)).unsqueeze(0)
         assert prec_mz_idx < spec.shape[1], (prec_mz_bin,
                                              prec_mz_idx, spec.shape)
-        if self.preproc_ce == "normalize":
-            col_energy_meta = th.tensor(
-                [(col_energy - self.mean_ce) / (self.std_ce + EPS)], dtype=th.float32)
-        elif self.preproc_ce == "quantize":
-            ce_bins = np.arange(0, 161, step=20)  # 8 bins
-            ce_idx = np.digitize(col_energy, bins=ce_bins, right=False)
-            col_energy_meta = th.ones([len(ce_bins) + 1], dtype=th.float32)
-            col_energy_meta[ce_idx] = 1.
-        else:
-            assert self.preproc_ce == "none", self.preproc_ce
-            col_energy_meta = th.tensor([col_energy], dtype=th.float32)
+        col_energy_meta = self.ce_func(col_energy)
         inst_type_meta = th.as_tensor(
             np_one_hot(
                 inst_type_idx,
@@ -786,15 +786,10 @@ class BaseDataset(th_data.Dataset):
                 elif isinstance(data_ds[0][k], dgl.DGLGraph):
                     batch_data_d[k] = dgl.batch(v)
                 elif isinstance(data_ds[0][k], torch_geometric.data.Data):
-                    if k == "gf_v2_data":
-                        batch_data_d[k] = gf_data_utils.collator(
-                            v
-                        )
-                    else:
-                        assert k == "esp_graph", k
-                        batch_data_d[k] = esp_data_utils.collator(
-                            v
-                        )
+                    assert k == "gf_v2_data", k
+                    batch_data_d[k] = gf_data_utils.collator(
+                        v
+                    )
                 else:
                     raise ValueError(f"{type(data_ds[0][k])} is not supported")
             return batch_data_d
@@ -846,15 +841,6 @@ class BaseDataset(th_data.Dataset):
             gf_v2_data = gf_data_utils.gf_preprocess(
                 mol, spec_entry["spec_id"], algos_v=self.gf_algos_v)
             data["gf_v2_data"] = gf_v2_data
-        if self.is_esp_dset:
-            esp_graph, esp_meta = esp_data_utils.esp_preprocess(
-                mol,
-                spec_entry["prec_type"],
-                spec_entry[self.ce_key],
-                [self.prec_type_i2c[i] for i in range(len(self.prec_type_i2c))],
-            )
-            data["esp_graph"] = esp_graph
-            data["esp_meta"] = esp_meta
         if self.casmi_fp:
             fp = data_utils.make_maccs_fingerprint(mol)
             fp = th.as_tensor(fp, dtype=th.float32).unsqueeze(0)
@@ -969,6 +955,14 @@ class BaseDataset(th_data.Dataset):
         all_d = collate_fn(all_ds)
         return all_d
 
+    def get_subset(self, ids, key="spec_id"):
+
+        assert key in ["spec_id", "mol_id", "group_id"], key
+        spec_id_mask = self.spec_df[key].isin(ids)
+        spec_id_idx = self.spec_df[spec_id_mask].index
+        ds = th_data.Subset(self, spec_id_idx)
+        return ds
+
 
 class CASMIDataset(BaseDataset):
 
@@ -977,7 +971,6 @@ class CASMIDataset(BaseDataset):
         self.is_fp_dset = "fp" in dset_types
         self.is_graph_dset = "graph" in dset_types
         self.is_gf_v2_dset = "gf_v2" in dset_types
-        self.is_esp_dset = "esp" in dset_types
         assert (self.is_fp_dset or self.is_graph_dset or self.is_gf_v2_dset)
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -1239,8 +1232,6 @@ def get_dset_types(embed_types):
             dset_types.add("gf")
         elif embed_type in ["gf_v2"]:
             dset_types.add("gf_v2")
-        elif embed_type in ["esp"]:
-            dset_types.add("esp")
         else:
             raise ValueError(f"invalid embed_type {embed_type}")
     dset_types = list(dset_types)
@@ -1284,99 +1275,3 @@ def get_dataloader(data_d_ow=dict(),model_d_ow=dict(),run_d_ow=dict()):
     ds.compute_lda(run_d)
     dl_dict, split_id_dict = ds.get_dataloaders(run_d)
     return ds, dl_dict, data_d, model_d, run_d
-
-
-def get_esp_dicts():
-
-    data_d_ow = dict(
-        num_entries=1000,
-        primary_dset=["nist"],
-        secondary_dset=[],
-        ce_key="nce",
-        inst_type=["FT"],
-        frag_mode=["HCD"],
-        pos_prec_type=['[M+H]+', '[M+H-H2O]+', '[M+H-2H2O]+', '[M+2H]2+', '[M+H-NH3]+', "[M+Na]+"],
-        fp_types=["morgan","rdkit","maccs"],
-        preproc_ce="none",
-        spectrum_normalization="l1",
-        casmi_num_entries=-1,
-        pcasmi_num_entries=-1,
-    )
-
-    model_d_ow = dict(
-        embed_types=["esp"],
-        model_seed=6666,
-        esp_model=True,
-    )
-
-    run_d_ow = dict(
-        loss="cos",
-        sim="cos",
-        lr=5e-4, ##
-        batch_size=128, ##
-        weight_decay=0.0, ##
-        num_epochs=2, #100
-        num_workers=0, #10,
-        cuda_deterministic=False,
-        do_test=True,
-        do_casmi=False,
-        do_pcasmi=False,
-        save_state=True,
-        save_media=True,
-        casmi_save_sim=True,
-        casmi_batch_size=400,
-        casmi_num_workers=10,
-        casmi_pred_all=True,
-        pcasmi_pred_all=False,
-        log_pcasmi_um=True,
-        log_auxiliary=True,
-        train_seed=5585,
-        split_seed=420,
-        split_key="inchikey_s",
-        log_tqdm=False,
-        test_sets=["train","val","test"],
-        save_test_sims=True,
-        lda_topic_loss=True,
-    )
-
-    return data_d_ow, model_d_ow, run_d_ow
-
-
-if __name__ == "__main__":
-
-    th.multiprocessing.set_sharing_strategy('file_system')
-
-    data_d_ow, model_d_ow, run_d_ow = get_esp_dicts()
-
-    ds, dl_dict, data_d, model_d, run_d = get_dataloader(
-        data_d_ow=data_d_ow,
-        model_d_ow=model_d_ow,
-        run_d_ow=run_d_ow
-    )
-
-    item = ds[0]
-    print(item.keys())
-    print(item["esp_graph"])
-    print(item["esp_meta"])
-    print(
-        th.mean(item["spec"],dim=1),
-        th.std(item["spec"],dim=1),
-        th.min(item["spec"],dim=1)[0],
-        th.max(item["spec"],dim=1)[0]
-    )
-    # print(item["lda_topic"])
-    
-    train_dl = dl_dict["primary"]["train"]
-    print(len(train_dl))
-
-    # get one batch
-    train_iter = iter(train_dl)
-    batch = next(train_iter)
-    print(batch.keys())
-
-    # iterate through batches
-    train_iter = iter(train_dl)
-    for batch in train_iter:
-        pass
-
-    import pdb; pdb.set_trace()

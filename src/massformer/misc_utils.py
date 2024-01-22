@@ -236,3 +236,20 @@ def get_nograd_param_names(model):
         if not param.requires_grad:
             nograd_names.append(name)
     return nograd_names
+
+
+def get_scaler(amp):
+    if amp:
+        scaler = th.cuda.amp.GradScaler()
+    else:
+        scaler = DummyScaler()
+    return scaler
+
+
+def get_pbar(iter, log_tqdm, **pbar_kwargs):
+    if log_tqdm:
+        return tqdm.tqdm(iter, **pbar_kwargs)
+    else:
+        if "desc" in pbar_kwargs:
+            print(pbar_kwargs["desc"])
+        return iter
