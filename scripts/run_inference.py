@@ -9,11 +9,12 @@ import massformer.data_utils as data_utils
 from massformer.data_utils import H_MASS, O_MASS, NA_MASS, N_MASS, C_MASS, par_apply_series
 from massformer.runner import init_wandb_run, load_config, train_and_eval, get_ds_model, get_pbar
 from massformer.dataset import data_to_device
-from massformer.spec_utils import unprocess_spec, process_spec
+from massformer.spec_utils import unprocess_spec, process_spec, merge_spec
 
 def init_from_smiles(dataset, smiles_df, prec_types, nces, run_d):
 
     ds = copy.deepcopy(dataset)
+    # print(ds.mean_ce, ds.std_ce)
     MW_DIFF = {
         '[M+H]+': H_MASS, 
         '[M+H-H2O]+': -H_MASS-O_MASS, 
@@ -22,10 +23,6 @@ def init_from_smiles(dataset, smiles_df, prec_types, nces, run_d):
         '[M+H-NH3]+': -2*H_MASS-N_MASS, 
         "[M+Na]+": NA_MASS
     }
-    ds.is_fp_dset = dataset.is_fp_dset
-    ds.is_graph_dset = dataset.is_graph_dset
-    ds.is_gf_v2_dset = dataset.is_gf_v2_dset
-    ds.is_esp_dset = dataset.is_esp_dset
     # preprocess molecules
     mol_df = smiles_df.copy()
     mol_df.loc[:, "mol"] = par_apply_series(
@@ -68,11 +65,12 @@ def init_from_smiles(dataset, smiles_df, prec_types, nces, run_d):
                 row_d["spec_type"] = "MS2"
                 row_d["ion_mode"] = "P"
                 row_d["dset"] = "new"
-                row_d["peaks"] = [(100.,0.2),(200.,0.3),(500.,0.5)]
+                row_d["peaks"] = [(100.,0.2),(200.,0.3),(500.,0.5)] # dummy spectrum
                 row_d["res"] = 7
                 row_d["col_gas"] = np.nan # ignored
                 row_d["ri"] = np.nan # ignored
                 rows.append(row_d)
+                # print(row_d["mol_id"], row_d["prec_type"], row_d["prec_mz"], row_d["nce"])
     spec_df = pd.DataFrame(rows)
     ds.spec_df = spec_df
     ds.mol_df = mol_df
@@ -105,13 +103,27 @@ def init_from_smiles(dataset, smiles_df, prec_types, nces, run_d):
         collate_fn=collate_fn)
     return ds, dl
 
+def get_mz_decimals(mz_bin_res):
+
+    assert mz_bin_res <= 1., mz_bin_res
+    if mz_bin_res >= 1.:
+        mz_decimals = 0
+    elif mz_bin_res >= 0.1:
+        mz_decimals = 1
+    elif mz_bin_res >= 0.01:
+        mz_decimals = 2
+    else:
+        mz_decimals = 3
+    return mz_decimals
+
 def convert_to_peaks(spec,mz_max,mz_bin_res):
 
     nz_idx = np.nonzero(spec)[0]
+    mz_decimals = get_mz_decimals(mz_bin_res)
     all_mzs = np.arange(0.,mz_max+mz_bin_res,mz_bin_res)
     mzs = all_mzs[nz_idx]
     ints = spec[nz_idx]
-    peaks = [(mz,int_) for mz,int_ in zip(mzs,ints)]
+    peaks = [(np.around(mz,decimals=mz_decimals),int_) for mz,int_ in zip(mzs,ints)]
     return peaks
 
 def run_inference(
@@ -156,13 +168,9 @@ def run_inference(
     pred = unprocess_spec(pred, data_d["transform"])
     # transform
     pred = process_spec(pred, transform, normalization)
-    # split
-    specs = [spec[0] for spec in np.vsplit(pred.numpy(),pred.shape[0])]
-    # convert to peaks
-    peakses = [convert_to_peaks(spec,data_d["mz_max"],data_d["mz_bin_res"]) for spec in specs]
     # stick everything into a dictionary
     out_d = {
-        "peaks": peakses,
+        "spec": pred.numpy(),
         "spec_id": spec_id.numpy(),
         "mol_id": mol_id.numpy(),
         "group_id": group_id.numpy()
@@ -182,19 +190,27 @@ def main(flags):
 
     ds, model, _, _, _ = get_ds_model(data_d, model_d, run_d)
 
-    # load saved model from checkpoint
-    if model_d["checkpoint_name"] is not None:
-        chkpt_fp = os.path.join(
-            data_d["checkpoint_dp"],
-            model_d["checkpoint_name"] + ".pkl")
-        chkpt_d = th.load(chkpt_fp,map_location="cpu")
-        model.load_state_dict(chkpt_d["best_model_sd"])
-
     smiles_df = pd.read_csv(flags.smiles_fp,sep=",")
 
     new_ds, new_dl = init_from_smiles(ds, smiles_df, flags.prec_types, flags.nces, run_d)
 
+    # load saved model from checkpoint
+    assert model_d["checkpoint_name"] is not None, model_d["checkpoint_name"]
+    chkpt_fp = os.path.join(
+        data_d["checkpoint_dp"],
+        model_d["checkpoint_name"] + ".pkl")
+    print(f"> loading local checkpoint {chkpt_fp}")
+    chkpt_d = th.load(chkpt_fp,map_location="cpu")
+    model.load_state_dict(chkpt_d["best_model_sd"])
+
+    # run inference
     out_d = run_inference(model, new_dl, data_d, model_d, run_d, flags.transform, flags.normalization)
+
+    # convert spectrum to peaks
+    specs = [spec[0] for spec in np.vsplit(out_d["spec"],out_d["spec"].shape[0])]
+    peakses = [convert_to_peaks(spec,data_d["mz_max"],data_d["mz_bin_res"]) for spec in specs]
+    del out_d["spec"], specs
+    out_d["peaks"] = peakses
 
     out_df = pd.DataFrame(out_d)
     meta_cols = ["spec_id","mol_id","group_id","prec_type","prec_mz","nce","inst_type","frag_mode","spec_type","ion_mode"]
@@ -226,7 +242,7 @@ if __name__ == "__main__":
         "-c",
         "--custom_fp",
         type=str,
-        default="config/demo.yml",
+        default="config/demo/demo_eval.yml",
         help="path to custom config file")
     parser.add_argument(
         "-s",

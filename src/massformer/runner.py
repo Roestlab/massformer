@@ -2,46 +2,24 @@ import torch as th
 import torch.nn.functional as F
 import numpy as np
 import wandb
-import argparse
 import yaml
 import os
-import torch_scatter as th_s
-from tqdm import tqdm
 import copy
-import math
 import pandas as pd
 import tempfile
 from pprint import pprint
 
 from massformer.dataset import BaseDataset, CASMIDataset, data_to_device, get_dset_types
-from massformer.model import Predictor, apply_postprocessing, cfm_postprocess
+from massformer.model import Predictor, cfm_postprocess
 from massformer.gf_model import GFv2Embedder, flag_bounded
 from massformer.cfm_model import CFMPredictor
-from massformer.esp_model import ESPPredictor
-from massformer.misc_utils import get_nograd_param_names, np_temp_seed, th_temp_seed, DummyContext, DummyScaler, sparse_to_dense, count_parameters
+from massformer.misc_utils import th_temp_seed, count_parameters, get_pbar, get_scaler
 from massformer.plot_utils import *
 from massformer.losses import get_loss_func, get_sim_func
 from massformer.lr import PolynomialDecayLR
 from massformer.metric_table import MetricTable
 from massformer.spec_utils import process_spec, unprocess_spec, merge_spec
 from massformer.data_utils import ELEMENT_LIST
-
-
-def get_scaler(amp):
-    if amp:
-        scaler = th.cuda.amp.GradScaler()
-    else:
-        scaler = DummyScaler()
-    return scaler
-
-
-def get_pbar(iter, run_d, **pbar_kwargs):
-    if run_d["log_tqdm"]:
-        return tqdm(iter, **pbar_kwargs)
-    else:
-        if "desc" in pbar_kwargs:
-            print(pbar_kwargs["desc"])
-        return iter
 
 
 def run_train_epoch(
@@ -86,7 +64,7 @@ def run_train_epoch(
     # iterate
     for b_idx, b in get_pbar(
         enumerate(
-            dl_d["train"]), run_d, desc="> train", total=len(
+            dl_d["train"]), run_d["log_tqdm"], desc="> train", total=len(
             dl_d["train"])):
         optimizer.zero_grad()
         b = data_to_device(b, dev, nb)
@@ -205,7 +183,7 @@ def compute_metric_tables(
     cos_sim_func = get_sim_func("cos", data_d["mz_bin_res"])
     # do unmerged first
     sim_obj, loss_obj, sim_cos_std = [], [], []
-    for b in get_pbar(range(um_num_batches),run_d,desc="> unmerged metrics"):
+    for b in get_pbar(range(um_num_batches),run_d["log_tqdm"],desc="> unmerged metrics"):
         b_pred = pred[b*um_batch_size:(b+1)*um_batch_size]
         b_targ = targ[b*um_batch_size:(b+1)*um_batch_size]
         # basic loss and sim
@@ -215,8 +193,8 @@ def compute_metric_tables(
         loss_obj.append(b_loss_obj)
         if auxiliary:
             # just doing cos, forget about the other ones
-            b_pred = process_spec(unprocess_spec(b_pred, data_d["transform"]),"none","l2")
-            b_targ = process_spec(unprocess_spec(b_targ, data_d["transform"]),"none","l2")
+            b_pred = process_spec(unprocess_spec(b_pred, data_d["transform"]),"none","l1")
+            b_targ = process_spec(unprocess_spec(b_targ, data_d["transform"]),"none","l1")
             b_sim_cos_std = cos_sim_func(b_pred, b_targ)
             sim_cos_std.append(b_sim_cos_std)
     sim_d = {
@@ -231,7 +209,7 @@ def compute_metric_tables(
         # batching
         m_num_batches = len(un_group_id) // m_batch_size + int(len(un_group_id) % m_batch_size != 0)
         m_sim_obj, m_loss_obj, m_sim_cos_std, m_group_id, m_mol_id = [], [], [], [], []
-        for b in get_pbar(range(m_num_batches),run_d,desc="> merged metrics"):
+        for b in get_pbar(range(m_num_batches),run_d["log_tqdm"],desc="> merged metrics"):
             b_group_id = un_group_id[b*m_batch_size:(b+1)*m_batch_size]
             b_mask = th.isin(group_id,b_group_id)
             b_group_id = group_id[b_mask]
@@ -249,8 +227,8 @@ def compute_metric_tables(
             m_mol_id.append(b_m_mol_id)
             if auxiliary:
                 # just doing cos, forget about the other ones
-                b_pred = process_spec(unprocess_spec(b_pred, data_d["transform"]),"none","l2")
-                b_targ = process_spec(unprocess_spec(b_targ, data_d["transform"]),"none","l2")
+                b_pred = process_spec(unprocess_spec(b_pred, data_d["transform"]),"none","l1")
+                b_targ = process_spec(unprocess_spec(b_targ, data_d["transform"]),"none","l1")
                 b_m_pred, b_m_targ, b_m_mol_id, b_m_group_id = merge_group_func(
                     b_pred, b_targ, b_group_id, b_mol_id, "std"
                 )
@@ -323,7 +301,7 @@ def run_val(
         with th.no_grad():
             for b_idx, b in get_pbar(
                 enumerate(
-                    dl_d["primary"]["val"]), run_d, desc="> val", total=len(
+                    dl_d["primary"]["val"]), run_d["log_tqdm"], desc="> val", total=len(
                     dl_d["primary"]["val"])):
                 b = data_to_device(b, dev, nb)
                 b_pred = model(data=b, amp=run_d["amp"])["pred"]
@@ -455,6 +433,7 @@ def run_track(
                     simple_mbs=simple_mbs,
                     plot_title=run_d["track_plot_title"],
                     custom_title=title,
+                    rescale_mz_min=0.
                 )
                 if use_wandb:
                     dl_type = dl_type.rstrip("")
@@ -585,7 +564,7 @@ def run_test(
                 pred, targ, mol_id, group_id = [], [], [], []
                 with th.no_grad():
                     for b_idx, b in get_pbar(
-                            enumerate(dl), run_d, desc=f"> {dl_key}", total=len(dl)):
+                            enumerate(dl), run_d["log_tqdm"], desc=f"> {dl_key}", total=len(dl)):
                         b = data_to_device(b, dev, nb)
                         b_pred = model(data=b, amp=run_d["amp"])["pred"]
                         b_targ = b["spec"]
@@ -739,7 +718,7 @@ def run_casmi(
         # get ground truth spectra, merge across collision energies
         spec, spec_spec_id, spec_group_id, spec_mol_id, spec_casmi_fp = [], [], [], [], []
         for b_idx, b in get_pbar(
-                enumerate(spec_dl), run_d, desc=f"> spec", total=len(spec_dl)):
+                enumerate(spec_dl), run_d["log_tqdm"], desc=f"> spec", total=len(spec_dl)):
             spec.append(b["spec"])
             spec_spec_id.append(b["spec_id"])
             spec_group_id.append(b["group_id"])
@@ -761,7 +740,7 @@ def run_casmi(
             cand_pred, cand_group_id, cand_mol_id, cand_spec_id, cand_casmi_fp = [], [], [], [], []
             with th.no_grad():
                 for b_idx, b in get_pbar(
-                        enumerate(group_dl), run_d, desc=f"> group all", total=len(group_dl)):
+                        enumerate(group_dl), run_d["log_tqdm"], desc=f"> group all", total=len(group_dl)):
                     b = data_to_device(b, dev, nb)
                     b_group_id = b["group_id"]
                     b_mol_id = b["mol_id"]
@@ -812,7 +791,7 @@ def run_casmi(
                 cand_pred, cand_mol_id, cand_spec_id, cand_casmi_fp = [], [], [], []
                 with th.no_grad():
                     for b_idx, b in get_pbar(enumerate(
-                            group_dl), run_d, desc=f"> group {i+1} / {spec_group_id_merge.shape[0]}", total=len(group_dl)):
+                            group_dl), run_d["log_tqdm"], desc=f"> group {i+1} / {spec_group_id_merge.shape[0]}", total=len(group_dl)):
                         b = data_to_device(b, dev, nb)
                         b_mol_id = b["mol_id"]
                         b_spec_id = b["spec_id"]
@@ -936,7 +915,6 @@ def get_ds_model(data_d, model_d, run_d):
         dim_d = ds.get_data_dims()
         if model_d["cfm_model"]:
             assert run_d["device"] == "cpu"
-            assert not model_d["esp_model"]
             model = CFMPredictor(
                 data_d["cfm_dp"],
                 ds,
@@ -944,17 +922,6 @@ def get_ds_model(data_d, model_d, run_d):
                 run_d["do_pcasmi"],
                 run_d["do_casmi22"],
                 use_rb=model_d["cfm_rb"]
-            )
-        elif model_d["esp_model"]:
-            assert not model_d["cfm_model"]
-            assert "esp" in dset_types, dset_types
-            model = ESPPredictor(
-                dim_d["o_dim"],
-                len(ELEMENT_LIST)+1,
-                7,
-                len(ds.prec_type_c2i)+1,
-                model_d["esp_new_reverse"],
-                model_d["prec_mass_offset"]
             )
         else:
             model = Predictor(dim_d, **model_d)

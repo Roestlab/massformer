@@ -7,7 +7,7 @@ from tqdm import tqdm
 import argparse
 
 from massformer.casmi_utils import common_filter, load_mw_cand, prepare_casmi_mol_df, prepare_casmi_cand_df, prepare_casmi_spec_df, proc_cand_smiles
-from massformer.data_utils import par_apply_series, mol_from_smiles, mol_to_smiles, mol_to_mol_weight, check_mol_props, get_res, H_MASS, O_MASS, NA_MASS, N_MASS, C_MASS
+from massformer.data_utils import par_apply_series, mol_from_smiles, mol_to_smiles, mol_to_mol_weight, get_res, H_MASS, NA_MASS
 
 
 def calculate_total_spec_ints(peaks):
