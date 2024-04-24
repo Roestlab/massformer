@@ -1,6 +1,6 @@
 # MassFormer
 
-This is the original implementation of MassFormer, a graph transformer for small molecule MS/MS prediction. Check out the preprint on [arxiv](https://arxiv.org/abs/2111.04824).
+This is the original implementation of MassFormer, a graph transformer for small molecule MS/MS prediction. Check out the preprint on [arXiv](https://arxiv.org/abs/2111.04824) and the full paper in [Nature Machine Intelligence](https://www.nature.com/articles/s42256-024-00816-8).
 
 ## System Requirements
 
