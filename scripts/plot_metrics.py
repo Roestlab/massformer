@@ -15,7 +15,6 @@ from scipy.stats import ttest_ind, kstest
 
 from massformer.metric_table import MetricTable
 from massformer.misc_utils import booltype
-from massformer.ont_parser import code_to_name
 from massformer.plot_utils import plot_sim_hist
 
 CASMI_TYPE_TO_NAME = {
@@ -28,6 +27,35 @@ CASMI_TYPE_TO_COLOR = {
 	"casmi": "tab:brown",
 	"pcasmi": "tab:purple",
 	"casmi22": "tab:olive"
+}
+
+code_to_name = {
+	"CHEMONTID:0000002": "Organoheterocyclic compounds",
+	"CHEMONTID:0000004": "Organosulfur compounds",
+	"CHEMONTID:0000012": "Lipids and lipid-like molecules",
+	"CHEMONTID:0000016": "Allenes",
+	"CHEMONTID:0000261": "Phenylpropanoids and polyketides",
+	"CHEMONTID:0000264": "Organic acids and derivatives",
+	"CHEMONTID:0000267": "Organohalogen compounds",
+	"CHEMONTID:0000279": "Alkaloids and derivatives",
+	"CHEMONTID:0000289": "Nucleosides, nucleotides, and analogues",
+	"CHEMONTID:0000400": "Organophosphorus compounds",
+	"CHEMONTID:0000462": "Organometallic compounds",
+	"CHEMONTID:0001392": "Lignans, neolignans and related compounds",
+	"CHEMONTID:0002448": "Benzenoids",
+	"CHEMONTID:0002837": "Hydrocarbons",
+	"CHEMONTID:0003297": "Organic Polymers",
+	"CHEMONTID:0003608": "Organic anions",
+	"CHEMONTID:0003609": "Organic cations",
+	"CHEMONTID:0003610": "Organic zwitterions",
+	"CHEMONTID:0003629": "Carbenes",
+	"CHEMONTID:0003630": "Organic 1,3-dipolar compounds",
+	"CHEMONTID:0003865": "Organic salts",
+	"CHEMONTID:0004150": "Hydrocarbon derivatives",
+	"CHEMONTID:0004478": "Acetylides",
+	"CHEMONTID:0004557": "Organopnictogen compounds",
+	"CHEMONTID:0004603": "Organic oxygen compounds",
+	"CHEMONTID:0004707": "Organic nitrogen compounds"
 }
 
 def multi_welch_t_test(metrics,target_idx,alpha=0.01,alternative="greater"):
