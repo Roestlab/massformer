@@ -1,0 +1,60 @@
+run_name:
+data:
+  num_entries: -1
+  primary_dset: ["nist","mb_na"]
+  secondary_dset: []
+  ce_key: "nce"
+  inst_type: ["FT"]
+  frag_mode: ["HCD"]
+  pos_prec_type: ['[M+H]+', '[M+H-H2O]+', '[M+H-2H2O]+', '[M+2H]2+', '[M+H-NH3]+', "[M+Na]+"]
+  fp_types:   ["morgan","rdkit","maccs"]
+  preproc_ce: "normalize"
+  spectrum_normalization: "l1"
+  gf_algos_v: "algos2"
+  mz_bin_res: 0.1
+model:
+  embed_types: ["gf_v2"]
+  ff_layer_type: "neims"
+  ff_h_dim: 1000
+  ff_num_layers: 4
+  ff_skip: True
+  dropout: 0.4
+  output_normalization: "l1"
+  bidirectional_prediction: True
+  gf_model_name: "graphormer_base"
+  gf_pretrain_name: "pcqm4mv2_graphormer_base"
+  fix_num_pt_layers: 0
+  reinit_num_pt_layers: -1
+  reinit_layernorm: True
+  model_seed: 6666
+run:
+  loss: "cos"
+  sim: "cos"
+  lr: 0.001
+  batch_size: 100
+  clip_grad_norm: 5.0
+  scheduler: "polynomial"
+  scheduler_peak_lr: 0.0002
+  weight_decay: 0.001
+  pt_weight_decay: 0.0
+  dp: False
+  dp_num_gpus: 0
+  flag: True
+  num_epochs: 20
+  num_workers: 8
+  cuda_deterministic: False
+  do_test: True
+  do_casmi: False
+  do_pcasmi: False
+  do_casmi22: False
+  save_state: True
+  save_media: False
+  log_auxiliary: True
+  train_seed: 5585
+  split_seed: 420
+  split_key: "inchikey_s"
+  log_tqdm: False
+  grad_acc_interval: 4 # for 12GB
+  test_sets: ["train","val"]
+  save_test_sims: True
+  test_frac: 0.
